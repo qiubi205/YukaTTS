@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1a1a2e">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:gravity="center_horizontal">
+
+        <!-- Header -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ONNX TTS"
+            android:textColor="#ffffff"
+            android:textSize="26sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Generic ONNX Runtime TTS"
+            android:textColor="#888888"
+            android:textSize="13sp"
+            android:layout_marginBottom="20dp" />
+
+        <!-- Select Model -->
+        <Button
+            android:id="@+id/btn_select_model"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:text="📂 Select ONNX Model"
+            android:textColor="#ffffff"
+            android:backgroundTint="#4a8ae0"
+            android:textSize="16sp"
+            app:cornerRadius="12dp" />
+
+        <!-- Model Info -->
+        <TextView
+            android:id="@+id/model_info"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:visibility="gone"
+            android:textColor="#aaaaaa"
+            android:textSize="12sp"
+            android:typeface="monospace"
+            android:padding="12dp"
+            android:layout_marginTop="12dp"
+            android:background="#0f3460"
+            android:gravity="start" />
+
+        <!-- Progress -->
+        <ProgressBar
+            android:id="@+id/progress_bar"
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:visibility="gone"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:indeterminate="true"
+            android:layout_marginTop="12dp" />
+
+        <!-- Text input (simple mode) -->
+        <androidx.cardview.widget.CardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            app:cardCornerRadius="12dp"
+            app:cardBackgroundColor="#0f3460">
+
+            <EditText
+                android:id="@+id/text_input"
+                android:layout_width="match_parent"
+                android:layout_height="120dp"
+                android:gravity="top"
+                android:padding="14dp"
+                android:hint="Or type text (auto-encoded as char codes)"
+                android:textColorHint="#555555"
+                android:textColor="#ffffff"
+                android:textSize="15sp"
+                android:background="@null"
+                android:inputType="textMultiLine"
+                android:maxLength="500" />
+        </androidx.cardview.widget.CardView>
+
+        <!-- Tensor Inputs (dynamic) -->
+        <LinearLayout
+            android:id="@+id/tensor_inputs_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone"
+            android:layout_marginTop="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Tensor Inputs"
+                android:textColor="#4a8ae0"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Fill comma-separated values for each input"
+                android:textColor="#888888"
+                android:textSize="12sp"
+                android:layout_marginBottom="8dp" />
+
+            <LinearLayout
+                android:id="@+id/tensor_inputs_layout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </LinearLayout>
+
+        <!-- Generate Button -->
+        <Button
+            android:id="@+id/btn_generate"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:text="🎧 Generate"
+            android:textColor="#ffffff"
+            android:backgroundTint="#4a8ae0"
+            android:textSize="16sp"
+            app:cornerRadius="12dp"
+            android:layout_marginTop="16dp" />
+
+        <!-- Status -->
+        <TextView
+            android:id="@+id/status_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Select a model to start"
+            android:textColor="#aaaaaa"
+            android:textSize="13sp"
+            android:layout_marginTop="8dp" />
+
+        <!-- Play / Save row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginTop="12dp">
+            <Button
+                android:id="@+id/btn_play"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:text="▶ Play"
+                android:textSize="16sp"
+                android:textColor="#ffffff"
+                android:backgroundTint="#2d6a4f"
+                android:enabled="false"
+                android:layout_marginEnd="6dp"
+                app:cornerRadius="12dp" />
+            <Button
+                android:id="@+id/btn_save"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:text="💾 Save"
+                android:textSize="16sp"
+                android:textColor="#ffffff"
+                android:backgroundTint="#7b2d8b"
+                android:enabled="false"
+                android:layout_marginStart="6dp"
+                app:cornerRadius="12dp" />
+        </LinearLayout>
+
+        <!-- Help button -->
+        <Button
+            android:id="@+id/btn_params_help"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:text="❓ How to use"
+            android:textColor="#888888"
+            android:backgroundTint="#2a2a3e"
+            android:textSize="13sp"
+            app:cornerRadius="10dp"
+            android:layout_marginTop="12dp" />
+
+    </LinearLayout>
+</ScrollView>
