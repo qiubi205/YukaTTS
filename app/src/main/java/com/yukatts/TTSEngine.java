@@ -111,19 +111,21 @@ public class TTSEngine {
 
         // Read input info
         inputInfos.clear();
-        for (Map.Entry<String, OnnxJavaType> entry : session.getInputInfo().entrySet()) {
+        for (Map.Entry<String, NodeInfo> entry : session.getInputInfo().entrySet()) {
             String name = entry.getKey();
-            OnnxJavaType type = entry.getValue();
-            long[] shape = session.getInputShape(name);
+            NodeInfo node = entry.getValue();
+            OnnxJavaType type = node.getInfo() instanceof TensorInfo ? ((TensorInfo) node.getInfo()).type : null;
+            long[] shape = node.getInfo() instanceof TensorInfo ? ((TensorInfo) node.getInfo()).getShape() : new long[0];
             inputInfos.put(name, new ModelInputInfo(name, type, shape));
         }
 
         // Read output info
         outputInfos.clear();
-        for (Map.Entry<String, OnnxJavaType> entry : session.getOutputInfo().entrySet()) {
+        for (Map.Entry<String, NodeInfo> entry : session.getOutputInfo().entrySet()) {
             String name = entry.getKey();
-            OnnxJavaType type = entry.getValue();
-            long[] shape = session.getOutputShape(name);
+            NodeInfo node = entry.getValue();
+            OnnxJavaType type = node.getInfo() instanceof TensorInfo ? ((TensorInfo) node.getInfo()).type : null;
+            long[] shape = node.getInfo() instanceof TensorInfo ? ((TensorInfo) node.getInfo()).getShape() : new long[0];
             outputInfos.put(name, new ModelOutputInfo(name, type, shape));
         }
 
@@ -194,7 +196,7 @@ public class TTSEngine {
             for (Map.Entry<String, OnnxValue> out : result) {
                 if (out.getValue() instanceof OnnxTensor) {
                     OnnxTensor tensor = (OnnxTensor) out.getValue();
-                    if (tensor.getInfo().type == OnnxJavaType.FLOAT) {
+                    if (tensor.getInfo() instanceof TensorInfo && ((TensorInfo) tensor.getInfo()).type == OnnxJavaType.FLOAT) {
                         long[] shape = tensor.getInfo().getShape();
                         int total = 1;
                         for (long s : shape) total *= (int) s;
