@@ -39,8 +39,6 @@ import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final int MAX_INPUT_VALUES_DISPLAY = 100;
-
     private TTSEngine engine;
     private Button btnSelectModel;
     private TextView modelInfoText;
@@ -50,8 +48,6 @@ public class MainActivity extends AppCompatActivity {
     private Button btnPlay;
     private Button btnSave;
     private EditText textInput;
-    private View tensorInputsContainer;
-    private LinearLayout tensorInputsLayout;
     private Button btnParamsHelp;
 
     // New params fields
@@ -66,10 +62,6 @@ public class MainActivity extends AppCompatActivity {
 
     private byte[] lastWav;
     private String lastModelPath;
-
-    // Dynamically created tensor input fields
-    private final ArrayList<EditText> tensorFields = new ArrayList<>();
-    private final ArrayList<String> tensorNames = new ArrayList<>();
 
     private final ActivityResultLauncher<String> filePicker =
             registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
@@ -106,8 +98,6 @@ public class MainActivity extends AppCompatActivity {
         btnPlay = findViewById(R.id.btn_play);
         btnSave = findViewById(R.id.btn_save);
         textInput = findViewById(R.id.text_input);
-        tensorInputsContainer = findViewById(R.id.tensor_inputs_container);
-        tensorInputsLayout = findViewById(R.id.tensor_inputs_layout);
         btnParamsHelp = findViewById(R.id.btn_params_help);
 
         // New param controls
@@ -191,8 +181,7 @@ public class MainActivity extends AppCompatActivity {
             public void onStopTrackingTouch(SeekBar sb) {}
         });
 
-        // Hide params container until model is loaded
-        paramsContainer.setVisibility(View.GONE);
+        paramsContainer.setVisibility(View.VISIBLE);
     }
 
     private void loadModelFromUri(Uri uri) {
@@ -255,70 +244,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void buildTensorInputs() {
-        tensorInputsLayout.removeAllViews();
-        tensorFields.clear();
-        tensorNames.clear();
-
-        LinkedHashMap<String, TTSEngine.ModelInputInfo> inputs = engine.getInputInfos();
-        if (inputs.isEmpty()) return;
-
-        for (TTSEngine.ModelInputInfo info : inputs.values()) {
-            TextView label = new TextView(this);
-            label.setText(info.name + "  " + info.shapeStr + "  " + info.type);
-            label.setTextColor(0xffaaaaaa);
-            label.setTextSize(13);
-            label.setPadding(0, 16, 0, 4);
-            tensorInputsLayout.addView(label);
-
-            String hint;
-            if (info.type == ai.onnxruntime.OnnxJavaType.FLOAT) {
-                hint = "例: 0.5, -0.3, 0.8,...";
-            } else if (info.type == ai.onnxruntime.OnnxJavaType.INT64) {
-                hint = "例: 12, 34, 56,...";
-            } else {
-                hint = "逗号分隔的数值";
-            }
-
-            EditText edit = new EditText(this);
-            edit.setHint(hint);
-            edit.setTextColor(0xffffffff);
-            edit.setHintTextColor(0xff555555);
-            edit.setBackgroundResource(android.R.drawable.editbox_background);
-            edit.setPadding(12, 8, 12, 8);
-            edit.setTextSize(14);
-            edit.setLines(1);
-
-            long numEl = info.numElements;
-            if (numEl > 0 && numEl <= 32) {
-                StringBuilder sb = new StringBuilder();
-                for (int i = 0; i < (int)Math.min(numEl, MAX_INPUT_VALUES_DISPLAY); i++) {
-                    if (i > 0) sb.append(", ");
-                    sb.append(info.type == ai.onnxruntime.OnnxJavaType.INT64 ? "0" : "0.0");
-                }
-                if (numEl > MAX_INPUT_VALUES_DISPLAY) sb.append(", ...");
-                edit.setText(sb.toString());
-            }
-
-            tensorInputsLayout.addView(edit);
-            tensorFields.add(edit);
-            tensorNames.add(info.name);
-
-            TextView sizeHint = new TextView(this);
-            sizeHint.setText("约 " + numEl + " 个值" + (info.shape[0]==-1 ? "（动态）" : ""));
-            sizeHint.setTextColor(0xff666666);
-            sizeHint.setTextSize(11);
-            sizeHint.setPadding(0, 0, 0, 8);
-            tensorInputsLayout.addView(sizeHint);
-        }
-
-        TextView modeHint = new TextView(this);
-        modeHint.setText("或输入文本，自动转字符编码");
-        modeHint.setTextColor(0xff888888);
-        modeHint.setTextSize(12);
-        modeHint.setPadding(0, 20, 0, 0);
-        tensorInputsLayout.addView(modeHint);
-
-        tensorInputsContainer.setVisibility(View.VISIBLE);
         paramsContainer.setVisibility(View.VISIBLE);
     }
 
@@ -326,46 +251,15 @@ public class MainActivity extends AppCompatActivity {
         new Thread(() -> {
             try {
                 Map<String, Object> inputData = new java.util.LinkedHashMap<>();
-
-                if (!tensorFields.isEmpty()) {
-                    for (int i = 0; i < tensorFields.size() && i < tensorNames.size(); i++) {
-                        String val = tensorFields.get(i).getText().toString().trim();
-                        if (val.isEmpty()) continue;
-
-                        TTSEngine.ModelInputInfo info = engine.getInputInfos().get(tensorNames.get(i));
-                        if (info == null) continue;
-
-                        String[] parts = val.split(",");
-                        if (info.type == ai.onnxruntime.OnnxJavaType.FLOAT) {
-                            float[] arr = new float[parts.length];
-                            for (int j = 0; j < parts.length; j++)
-                                arr[j] = Float.parseFloat(parts[j].trim());
-                            inputData.put(tensorNames.get(i), arr);
-                        } else if (info.type == ai.onnxruntime.OnnxJavaType.INT64) {
-                            long[] arr = new long[parts.length];
-                            for (int j = 0; j < parts.length; j++)
-                                arr[j] = Long.parseLong(parts[j].trim());
-                            inputData.put(tensorNames.get(i), arr);
-                        } else if (info.type == ai.onnxruntime.OnnxJavaType.INT32) {
-                            int[] arr = new int[parts.length];
-                            for (int j = 0; j < parts.length; j++)
-                                arr[j] = Integer.parseInt(parts[j].trim());
-                            inputData.put(tensorNames.get(i), arr);
-                        }
-                    }
-                }
-
-                if (inputData.isEmpty()) {
-                    String txt = textInput.getText().toString().trim();
-                    if (!txt.isEmpty()) {
-                        for (TTSEngine.ModelInputInfo info : engine.getInputInfos().values()) {
-                            if (info.type == ai.onnxruntime.OnnxJavaType.INT64) {
-                                long[] charCodes = new long[txt.length()];
-                                for (int j = 0; j < txt.length(); j++)
-                                    charCodes[j] = txt.charAt(j);
-                                inputData.put(info.name, charCodes);
-                                break;
-                            }
+                String txt = textInput.getText().toString().trim();
+                if (!txt.isEmpty()) {
+                    for (TTSEngine.ModelInputInfo info : engine.getInputInfos().values()) {
+                        if (info.type == ai.onnxruntime.OnnxJavaType.INT64) {
+                            long[] charCodes = new long[txt.length()];
+                            for (int j = 0; j < txt.length(); j++)
+                                charCodes[j] = txt.charAt(j);
+                            inputData.put(info.name, charCodes);
+                            break;
                         }
                     }
                 }
