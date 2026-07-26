@@ -348,11 +348,7 @@ public class MainActivity extends AppCompatActivity {
         new Thread(() -> {
             try {
                 float[] audio;
-                if (refAudio != null && !refAudio.isEmpty()) {
-                    audio = engine.synthesize(text, refAudio, refText, speed, topK, temp);
-                } else {
-                    audio = engine.synthesizeSimple(text, speed, topK, temp);
-                }
+                audio = engine.synthesize(text, refAudio, refText, speed, topK, temp);
                 lastWav = engine.audioToWav(audio);
 
                 float dur = audio.length / (float) engine.getSampleRate();
