@@ -17,9 +17,9 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
-import android.widget.SeekBar;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -53,6 +53,7 @@ public class MainActivity extends AppCompatActivity {
     private View tensorInputsContainer;
     private LinearLayout tensorInputsLayout;
     private Button btnParamsHelp;
+
     // New params fields
     private Button btnRefAudio, btnRefDefault, btnResetParams;
     private TextView refAudioName;
@@ -62,7 +63,6 @@ public class MainActivity extends AppCompatActivity {
     private TextView speedValue, topkValue, tempValue;
     private Uri refAudioUri;
     private String refAudioPath;
-
 
     private byte[] lastWav;
     private String lastModelPath;
@@ -108,6 +108,8 @@ public class MainActivity extends AppCompatActivity {
         textInput = findViewById(R.id.text_input);
         tensorInputsContainer = findViewById(R.id.tensor_inputs_container);
         tensorInputsLayout = findViewById(R.id.tensor_inputs_layout);
+        btnParamsHelp = findViewById(R.id.btn_params_help);
+
         // New param controls
         btnRefAudio = findViewById(R.id.btn_ref_audio);
         btnRefDefault = findViewById(R.id.btn_ref_default);
@@ -121,11 +123,9 @@ public class MainActivity extends AppCompatActivity {
         speedValue = findViewById(R.id.speed_value);
         topkValue = findViewById(R.id.topk_value);
         tempValue = findViewById(R.id.temp_value);
-        btnParamsHelp = findViewById(R.id.btn_params_help);
 
         btnSelectModel.setOnClickListener(v -> {
             if (Build.VERSION.SDK_INT >= 33) {
-                // Android 13+ uses the new media/image picker
                 filePicker.launch("application/octet-stream");
             } else {
                 filePicker.launch("*/*");
@@ -152,20 +152,11 @@ public class MainActivity extends AppCompatActivity {
         });
 
         btnParamsHelp.setOnClickListener(v -> showParamsHelp());
-    }
-
-    private void loadModelFromUri(Uri uri) {
-        setBusy(true);
-        statusText.setText("正在加载模型…");
 
         // ---- New param control listeners ----
-
         btnRefAudio.setOnClickListener(v -> refAudioPicker.launch("audio/*"));
 
-        btnRefDefault.setOnClickListener(v -> {
-            // Use default reference audio from assets
-            loadDefaultRefAudio();
-        });
+        btnRefDefault.setOnClickListener(v -> loadDefaultRefAudio());
 
         btnResetParams.setOnClickListener(v -> {
             speedSeekbar.setProgress(50);
@@ -200,12 +191,16 @@ public class MainActivity extends AppCompatActivity {
             public void onStopTrackingTouch(SeekBar sb) {}
         });
 
-        // Show params container after model is loaded (hide now, show in updateModelInfo)
+        // Hide params container until model is loaded
         paramsContainer.setVisibility(View.GONE);
+    }
+
+    private void loadModelFromUri(Uri uri) {
+        setBusy(true);
+        statusText.setText("正在加载模型…");
 
         new Thread(() -> {
             try {
-                // Copy to cache dir for ONNX Runtime file access
                 String fileName = "model_" + System.currentTimeMillis() + ".onnx";
                 File cacheFile = new File(getCacheDir(), fileName);
                 try (InputStream is = getContentResolver().openInputStream(uri);
@@ -267,9 +262,7 @@ public class MainActivity extends AppCompatActivity {
         LinkedHashMap<String, TTSEngine.ModelInputInfo> inputs = engine.getInputInfos();
         if (inputs.isEmpty()) return;
 
-        // For each input, create a labeled text field
         for (TTSEngine.ModelInputInfo info : inputs.values()) {
-            // Label
             TextView label = new TextView(this);
             label.setText(info.name + "  " + info.shapeStr + "  " + info.type);
             label.setTextColor(0xffaaaaaa);
@@ -277,7 +270,6 @@ public class MainActivity extends AppCompatActivity {
             label.setPadding(0, 16, 0, 4);
             tensorInputsLayout.addView(label);
 
-            // Hint text
             String hint;
             if (info.type == ai.onnxruntime.OnnxJavaType.FLOAT) {
                 hint = "例: 0.5, -0.3, 0.8,...";
@@ -296,7 +288,6 @@ public class MainActivity extends AppCompatActivity {
             edit.setTextSize(14);
             edit.setLines(1);
 
-            // Pre-fill small inputs with zeros
             long numEl = info.numElements;
             if (numEl > 0 && numEl <= 32) {
                 StringBuilder sb = new StringBuilder();
@@ -312,7 +303,6 @@ public class MainActivity extends AppCompatActivity {
             tensorFields.add(edit);
             tensorNames.add(info.name);
 
-            // Small size hint
             TextView sizeHint = new TextView(this);
             sizeHint.setText("约 " + numEl + " 个值" + (info.shape[0]==-1 ? "（动态）" : ""));
             sizeHint.setTextColor(0xff666666);
@@ -321,7 +311,6 @@ public class MainActivity extends AppCompatActivity {
             tensorInputsLayout.addView(sizeHint);
         }
 
-        // Simple mode hint
         TextView modeHint = new TextView(this);
         modeHint.setText("或输入文本，自动转字符编码");
         modeHint.setTextColor(0xff888888);
@@ -338,7 +327,6 @@ public class MainActivity extends AppCompatActivity {
             try {
                 Map<String, Object> inputData = new java.util.LinkedHashMap<>();
 
-                // Try reading from tensor fields first
                 if (!tensorFields.isEmpty()) {
                     for (int i = 0; i < tensorFields.size() && i < tensorNames.size(); i++) {
                         String val = tensorFields.get(i).getText().toString().trim();
@@ -367,11 +355,9 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
 
-                // If no tensor fields filled, try text input as fallback (char->int64)
                 if (inputData.isEmpty()) {
                     String txt = textInput.getText().toString().trim();
                     if (!txt.isEmpty()) {
-                        // Find first int64 input and fill it with char codes
                         for (TTSEngine.ModelInputInfo info : engine.getInputInfos().values()) {
                             if (info.type == ai.onnxruntime.OnnxJavaType.INT64) {
                                 long[] charCodes = new long[txt.length()];
@@ -393,7 +379,7 @@ public class MainActivity extends AppCompatActivity {
                 }
 
                 runOnUiThread(() -> statusText.setText("正在推理…"));
-                engine.runInference(inputData, getSpeedParam(), getTopKParam(), getTempParam());
+                float[] audio = engine.runInference(inputData, getSpeedParam(), getTopKParam(), getTempParam());
                 lastWav = engine.audioToWav(audio);
 
                 float durationSec = audio.length / (float) engine.getSampleRate();
@@ -442,7 +428,7 @@ public class MainActivity extends AppCompatActivity {
 
             track.write(wavData, dataOffset, pcmLen);
             track.play();
-            track.release(); // one-shot play
+            track.release();
         } catch (Exception e) {
             statusText.setText("播放失败：" + e.getMessage());
         }
@@ -450,7 +436,6 @@ public class MainActivity extends AppCompatActivity {
 
     private void checkStorageAndSave() {
         if (Build.VERSION.SDK_INT >= 30) {
-            // Android 11+ scoped storage - save to Downloads directly
             saveAudio();
         } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
                 == PackageManager.PERMISSION_GRANTED) {
@@ -464,12 +449,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
             String name = "tts_" + ts + ".wav";
-            File dir;
-            if (Build.VERSION.SDK_INT >= 30) {
-                dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-            } else {
-                dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-            }
+            File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
             dir.mkdirs();
             File file = new File(dir, name);
             try (FileOutputStream fos = new FileOutputStream(file)) {
@@ -500,7 +480,6 @@ public class MainActivity extends AppCompatActivity {
         b.show();
     }
 
-
     private String getFileNameFromUri(Uri uri) {
         String path = uri.getLastPathSegment();
         if (path != null) {
@@ -529,7 +508,6 @@ public class MainActivity extends AppCompatActivity {
 
     private void loadDefaultRefAudio() {
         try {
-            // Try to copy default ref audio from assets
             String[] files = getAssets().list("");
             boolean found = false;
             for (String f : files) {
