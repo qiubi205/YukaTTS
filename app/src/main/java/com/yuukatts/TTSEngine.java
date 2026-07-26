@@ -3,7 +3,6 @@ package com.yuukatts;
 import android.util.Log;
 
 import org.pytorch.IValue;
-import org.pytorch.LiteModuleLoader;
 import org.pytorch.Module;
 import org.pytorch.Tensor;
 
@@ -59,13 +58,13 @@ public class TTSEngine {
         if (!gptFile.exists()) throw new RuntimeException("缺少 gpt_sovits_model.pt");
 
         Log.i(TAG, "加载 BERT 模型: " + bertFile.getAbsolutePath());
-        bertModel = LiteModuleLoader.load(bertFile.getAbsolutePath());
+        bertModel = Module.load(bertFile.getAbsolutePath());
 
         Log.i(TAG, "加载 SSL 模型: " + sslFile.getAbsolutePath());
-        sslModel = LiteModuleLoader.load(sslFile.getAbsolutePath());
+        sslModel = Module.load(sslFile.getAbsolutePath());
 
         Log.i(TAG, "加载 GPT-SoVITS 模型: " + gptFile.getAbsolutePath());
-        gptSovitsModel = LiteModuleLoader.load(gptFile.getAbsolutePath());
+        gptSovitsModel = Module.load(gptFile.getAbsolutePath());
 
         modelDir = dirPath;
         loaded = true;

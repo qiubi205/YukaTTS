@@ -26,7 +26,6 @@ android {
         }
     }
 
-    // 排除 lite 库自带的 libpytorch_jni.so 冲突（如果有的话）
     packaging {
         jniLibs {
             useLegacyPackaging = true
@@ -35,9 +34,9 @@ android {
 }
 
 dependencies {
-    // PyTorch Mobile Lite (TorchScript .pt 模型推理)
-    implementation("org.pytorch:pytorch_android_lite:2.1.0")
-    implementation("org.pytorch:pytorch_android_torchvision_lite:2.1.0")
+    // PyTorch Android 完整版（支持标准 TorchScript 格式，含 bytecode）
+    implementation("org.pytorch:pytorch_android:2.1.0")
+    implementation("org.pytorch:pytorch_android_torchvision:2.1.0")
 
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
