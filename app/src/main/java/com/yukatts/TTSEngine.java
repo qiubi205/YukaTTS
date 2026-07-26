@@ -178,11 +178,11 @@ public class TTSEngine {
                 } else if (info.type == OnnxJavaType.INT32) {
                     int[] data = (int[]) entry.getValue();
                     long[] shape = replaceDynamicDims(info.shape, data.length);
-                    tensor = OnnxTensor.createTensor(env, data, shape);
+                    tensor = OnnxTensor.createTensor(env, java.nio.IntBuffer.wrap(data), shape);
                 } else if (info.type == OnnxJavaType.INT8) {
                     byte[] data = (byte[]) entry.getValue();
                     long[] shape = replaceDynamicDims(info.shape, data.length);
-                    tensor = OnnxTensor.createTensor(env, data, shape);
+                    tensor = OnnxTensor.createTensor(env, java.nio.ByteBuffer.wrap(data), shape);
                 } else {
                     throw new IllegalArgumentException("Unsupported input type: " + info.type + " for " + name);
                 }
@@ -226,31 +226,17 @@ public class TTSEngine {
      * Normalize audio and pack into WAV format.
      */
     public byte[] audioToWav(float[] audio) {
-        if (nativeNormalizeAudio != null) {
-            nativeNormalizeAudio(audio, 0.95f);
+        byte[] pcm = new byte[audio.length * 2];
+        for (int i = 0; i < audio.length; i++) {
+            float s = audio[i];
+            if (s > 1f) s = 1f;
+            if (s < -1f) s = -1f;
+            short val = (short) (s * 32767);
+            pcm[i * 2] = (byte) (val & 0xFF);
+            pcm[i * 2 + 1] = (byte) ((val >> 8) & 0xFF);
         }
 
-        byte[] pcm;
-        if (nativeFloatToPCM16 != null) {
-            pcm = nativeFloatToPCM16(audio);
-        } else {
-            pcm = new byte[audio.length * 2];
-            for (int i = 0; i < audio.length; i++) {
-                float s = audio[i];
-                if (s > 1f) s = 1f;
-                if (s < -1f) s = -1f;
-                short val = (short) (s * 32767);
-                pcm[i * 2] = (byte) (val & 0xFF);
-                pcm[i * 2 + 1] = (byte) ((val >> 8) & 0xFF);
-            }
-        }
-
-        byte[] header;
-        if (nativeCreateWavHeader != null) {
-            header = nativeCreateWavHeader(pcm.length, sampleRate, 1, 16);
-        } else {
-            header = createWavHeaderJava(pcm.length, sampleRate, 1, 16);
-        }
+        byte[] header = createWavHeaderJava(pcm.length, sampleRate, 1, 16);
 
         byte[] wav = new byte[header.length + pcm.length];
         System.arraycopy(header, 0, wav, 0, header.length);
