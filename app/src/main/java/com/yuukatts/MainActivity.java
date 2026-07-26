@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -19,7 +20,6 @@ import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
@@ -28,7 +28,6 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.text.SimpleDateFormat;
 import java.util.Date;
-import android.util.Log;
 import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
@@ -56,6 +55,10 @@ public class MainActivity extends AppCompatActivity {
     private byte[] lastWav;
     private boolean generating = false;
 
+    // 模型三文件选择
+    private String bertPath, sslPath, gptPath;
+    private String pendingModelType = null; // "bert" | "ssl" | "gpt"
+
     private final ActivityResultLauncher<String> storagePerm =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
                 if (granted) saveAudio();
@@ -70,6 +73,16 @@ public class MainActivity extends AppCompatActivity {
                     copyRefAudioToCache(uri);
                 }
             });
+
+    // 模型文件选择器（用 */* 通配，Android 文件管理器过滤）
+    private final ActivityResultLauncher<String> modelFilePicker = createModelFilePicker();
+
+    private ActivityResultLauncher<String> createModelFilePicker() {
+        return registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
+            if (uri == null || pendingModelType == null) return;
+            copyModelFile(uri, pendingModelType);
+        });
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -99,11 +112,11 @@ public class MainActivity extends AppCompatActivity {
 
         // ── 加载模型 ──
         btnLoadModel.setOnClickListener(v -> {
-            if (!engine.isLoaded()) {
-                loadModels();
-            } else {
+            if (engine.isLoaded()) {
                 Toast.makeText(this, "模型已加载", Toast.LENGTH_SHORT).show();
+                return;
             }
+            showModelPickerDialog();
         });
 
         // ── 生成 ──
@@ -164,56 +177,155 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // ──────── 模型加载 ────────
+    // ──────── 模型选择 ────────
 
-    private void loadModels() {
+    private void showModelPickerDialog() {
+        String bertLabel = bertPath != null ? "✅ BERT: " + getShortName(bertPath) : "❌ 未选择 BERT 模型";
+        String sslLabel  = sslPath  != null ? "✅ SSL: "  + getShortName(sslPath)  : "❌ 未选择 SSL 模型";
+        String gptLabel  = gptPath  != null ? "✅ GPT-SoVITS: " + getShortName(gptPath) : "❌ 未选择 GPT-SoVITS 模型";
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("选择模型文件")
+                .setMessage("请依次选择三个 TorchScript 模型文件：\n\n" + bertLabel + "\n" + sslLabel + "\n" + gptLabel + "\n\n选择全部三个后点击加载")
+                .setPositiveButton("选择 BERT 模型", (d, w) -> {
+                    pendingModelType = "bert";
+                    modelFilePicker.launch("application/*");
+                })
+                .setNeutralButton("选择 SSL 模型", (d, w) -> {
+                    pendingModelType = "ssl";
+                    modelFilePicker.launch("application/*");
+                })
+                .setNegativeButton("选择 GPT-SoVITS", (d, w) -> {
+                    pendingModelType = "gpt";
+                    modelFilePicker.launch("application/*");
+                })
+                .show();
+    }
+
+    private void showLoadNowDialog() {
+        boolean allPicked = bertPath != null && sslPath != null && gptPath != null;
+        if (!allPicked) {
+            Toast.makeText(this, "请先选完三个模型文件", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("确认加载")
+                .setMessage("BERT: " + getShortName(bertPath) + "\nSSL: " + getShortName(sslPath) + "\nGPT-SoVITS: " + getShortName(gptPath) + "\n\n开始加载？")
+                .setPositiveButton("加载", (d, w) -> loadSelectedModels())
+                .setNegativeButton("重新选择", (d, w) -> showModelPickerDialog())
+                .show();
+    }
+
+    private void copyModelFile(Uri uri, String type) {
+        File destDir = new File(getCacheDir(), "models");
+        destDir.mkdirs();
+
+        String destName;
+        switch (type) {
+            case "bert": destName = "bert_model.pt"; break;
+            case "ssl":  destName = "ssl_model.pt"; break;
+            case "gpt":  destName = "gpt_sovits_model.pt"; break;
+            default:     destName = "model.pt";
+        }
+
+        File destFile = new File(destDir, destName);
+        setBusy(true);
+        statusText.setText("正在复制 " + getShortName(getFileNameFromUri(uri)) + "…");
+
+        new Thread(() -> {
+            try {
+                try (InputStream is = getContentResolver().openInputStream(uri);
+                     FileOutputStream fos = new FileOutputStream(destFile)) {
+                    byte[] buf = new byte[65536];
+                    int n;
+                    while ((n = is.read(buf)) > 0) fos.write(buf, 0, n);
+                }
+
+                // 验证文件不是空的 + 大小合理
+                long fsize = destFile.length();
+                if (fsize < 1024) {
+                    runOnUiThread(() -> {
+                        setBusy(false);
+                        Toast.makeText(this, "文件太小，可能选错了", Toast.LENGTH_SHORT).show();
+                    });
+                    return;
+                }
+
+                switch (type) {
+                    case "bert": bertPath = destFile.getAbsolutePath(); break;
+                    case "ssl":  sslPath  = destFile.getAbsolutePath(); break;
+                    case "gpt":  gptPath  = destFile.getAbsolutePath(); break;
+                }
+
+                Log.i("YuukaTTS", type + " 模型已复制: " + destFile.getAbsolutePath() + " (" + (fsize / 1048576) + " MB)");
+
+                runOnUiThread(() -> {
+                    setBusy(false);
+                    statusText.setText(getModelStatusText());
+                    // 全选完后自动弹出确认加载
+                    if (bertPath != null && sslPath != null && gptPath != null) {
+                        showLoadNowDialog();
+                    } else {
+                        showModelPickerDialog();
+                    }
+                });
+            } catch (Exception e) {
+                Log.e("YuukaTTS", "复制模型文件失败", e);
+                runOnUiThread(() -> {
+                    setBusy(false);
+                    statusText.setText("复制失败：" + e.getMessage());
+                    Toast.makeText(this, "复制失败", Toast.LENGTH_SHORT).show();
+                });
+            }
+        }).start();
+    }
+
+    private String getModelStatusText() {
+        StringBuilder sb = new StringBuilder();
+        if (bertPath != null) sb.append("✅ BERT  ");
+        else sb.append("❌ BERT  ");
+        if (sslPath != null) sb.append("✅ SSL  ");
+        else sb.append("❌ SSL  ");
+        if (gptPath != null) sb.append("✅ GPT-SoVITS");
+        else sb.append("❌ GPT-SoVITS");
+        return sb.toString();
+    }
+
+    private String getShortName(String path) {
+        if (path == null) return "—";
+        String name = new File(path).getName();
+        if (name.length() > 30) name = name.substring(0, 27) + "...";
+        return name;
+    }
+
+    private synchronized void loadSelectedModels() {
         setBusy(true);
         statusText.setText("正在加载模型…");
 
         new Thread(() -> {
             try {
-                // 尝试从 assets 加载
-                try {
-                    engine.loadModelsFromAssets(this);
-                    runOnUiThread(() -> {
-                        setBusy(false);
-                        statusText.setText("✅ 模型加载完成！");
-                        btnLoadModel.setEnabled(false);
-                        Toast.makeText(this, "模型已就绪", Toast.LENGTH_SHORT).show();
-                    });
-                    return;
-                } catch (Exception e) {
-                    Log.w("YuukaTTS", "assets 加载失败，尝试外部存储: " + e.getMessage());
-                }
-
-                // 尝试从外部存储 models/yuka/ 目录加载
-                File extDir = Environment.getExternalStorageDirectory();
-                File modelDir = new File(extDir, "models/yuka");
-                if (modelDir.exists()) {
-                    engine.loadModels(modelDir.getAbsolutePath());
-                    runOnUiThread(() -> {
-                        setBusy(false);
-                        statusText.setText("✅ 模型加载完成！");
-                        btnLoadModel.setEnabled(false);
-                        Toast.makeText(this, "模型已就绪", Toast.LENGTH_SHORT).show();
-                    });
-                    return;
-                }
-
-                // 都不行，提示用户
+                engine.loadModels(new File(bertPath).getParent());
                 runOnUiThread(() -> {
                     setBusy(false);
-                    statusText.setText("❌ 未找到模型文件");
-                    Toast.makeText(this,
-                            "请将 bert_model.pt, ssl_model.pt, gpt_sovits_model.pt\n放入手机存储的 models/yuka/ 目录",
-                            Toast.LENGTH_LONG).show();
+                    statusText.setText("✅ 模型加载完成！");
+                    btnLoadModel.setEnabled(false);
+                    Toast.makeText(this, "模型已就绪", Toast.LENGTH_SHORT).show();
                 });
-
             } catch (Exception e) {
+                Log.e("YuukaTTS", "加载失败", e);
                 runOnUiThread(() -> {
                     setBusy(false);
-                    statusText.setText("加载失败：" + e.getMessage());
-                    Toast.makeText(this, "出错：" + e.getMessage(), Toast.LENGTH_LONG).show();
+                    statusText.setText("❌ 加载失败：" + e.getMessage());
+                    new androidx.appcompat.app.AlertDialog.Builder(this)
+                            .setTitle("模型加载失败")
+                            .setMessage("错误信息：" + e.getMessage() + "\n\n请确认选择的文件是正确的 TorchScript 模型（.pt 文件）。\n\n需要三个文件：\n• bert_model.pt\n• ssl_model.pt\n• gpt_sovits_model.pt")
+                            .setPositiveButton("重新选择", (d, w) -> {
+                                bertPath = sslPath = gptPath = null;
+                                showModelPickerDialog();
+                            })
+                            .setNegativeButton("重试", (d, w) -> loadSelectedModels())
+                            .setCancelable(false)
+                            .show();
                 });
             }
         }).start();
@@ -251,7 +363,6 @@ public class MainActivity extends AppCompatActivity {
                             dur, lastWav.length / 1024f));
                     btnPlay.setEnabled(true);
                     btnSave.setEnabled(true);
-                    // 自动播放
                     playAudio(lastWav);
                 });
 
@@ -421,5 +532,4 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
         if (engine != null) engine.close();
     }
-
 }

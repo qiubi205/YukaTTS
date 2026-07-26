@@ -1,7 +1,5 @@
 package com.yuukatts;
 
-import android.content.Context;
-import android.content.res.AssetManager;
 import android.util.Log;
 
 import org.pytorch.IValue;
@@ -10,10 +8,6 @@ import org.pytorch.Module;
 import org.pytorch.Tensor;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.nio.FloatBuffer;
-import java.nio.LongBuffer;
 import java.util.Arrays;
 
 /**
@@ -76,37 +70,6 @@ public class TTSEngine {
         modelDir = dirPath;
         loaded = true;
         Log.i(TAG, "三个模型加载完成 ✅");
-    }
-
-    /**
-     * 从 assets 目录复制模型到缓存并加载。
-     * assets 下应有 models/ 目录包含三个 .pt 文件。
-     */
-    public void loadModelsFromAssets(Context context) throws Exception {
-        if (loaded) close();
-
-        File cacheDir = new File(context.getCacheDir(), "models");
-        cacheDir.mkdirs();
-
-        String[] modelFiles = {"bert_model.pt", "ssl_model.pt", "gpt_sovits_model.pt"};
-        AssetManager am = context.getAssets();
-
-        for (String name : modelFiles) {
-            File dest = new File(cacheDir, name);
-            if (!dest.exists()) {
-                Log.i(TAG, "从 assets 复制: models/" + name);
-                try (InputStream is = am.open("models/" + name);
-                     FileOutputStream fos = new FileOutputStream(dest)) {
-                    byte[] buf = new byte[65536];
-                    int n;
-                    while ((n = is.read(buf)) > 0) {
-                        fos.write(buf, 0, n);
-                    }
-                }
-            }
-        }
-
-        loadModels(cacheDir.getAbsolutePath());
     }
 
     /**
@@ -179,15 +142,6 @@ public class TTSEngine {
         }
 
         return audio;
-    }
-
-    /**
-     * 简单版：仅推理（使用预加载的参考音频，不传 ref audio 参数时）
-     */
-    public float[] synthesizeSimple(String text, float speed, int topK, float temperature) throws Exception {
-        // 简化版本：只传文本到 gpt_sovits_model
-        // 实际使用需要完整联级推理
-        return synthesize(text, null, null, speed, topK, temperature);
     }
 
     /**
