@@ -1,7 +1,6 @@
-package com.yukatts;
+package com.yuukatts;
 
 import android.Manifest;
-import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.media.AudioAttributes;
 import android.media.AudioFormat;
@@ -10,13 +9,10 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.provider.Settings;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.LinearLayout;
 import android.widget.ProgressBar;
-import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -31,42 +27,33 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.Date;
-import java.util.LinkedHashMap;
 import java.util.Locale;
-import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
 
     private TTSEngine engine;
-    private Button btnSelectModel;
-    private TextView modelInfoText;
+    private Button btnLoadModel;
     private TextView statusText;
     private ProgressBar progressBar;
     private Button btnGenerate;
     private Button btnPlay;
     private Button btnSave;
     private EditText textInput;
-    private Button btnParamsHelp;
 
-    // New params fields
-    private Button btnRefAudio, btnRefDefault, btnResetParams;
+    // 参考音频
+    private Button btnRefAudio, btnRefDefault;
     private TextView refAudioName;
     private EditText refTextInput;
-    private View paramsContainer;
-    private SeekBar speedSeekbar, topkSeekbar, tempSeekbar;
-    private TextView speedValue, topkValue, tempValue;
     private Uri refAudioUri;
     private String refAudioPath;
 
-    private byte[] lastWav;
-    private String lastModelPath;
+    // 参数
+    private SeekBar speedSeekbar, topkSeekbar, tempSeekbar;
+    private TextView speedValue, topkValue, tempValue;
 
-    private final ActivityResultLauncher<String> filePicker =
-            registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
-                if (uri != null) loadModelFromUri(uri);
-            });
+    private byte[] lastWav;
+    private boolean generating = false;
 
     private final ActivityResultLauncher<String> storagePerm =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
@@ -90,23 +77,18 @@ public class MainActivity extends AppCompatActivity {
 
         engine = new TTSEngine();
 
-        btnSelectModel = findViewById(R.id.btn_select_model);
-        modelInfoText = findViewById(R.id.model_info);
+        btnLoadModel = findViewById(R.id.btn_load_model);
         statusText = findViewById(R.id.status_text);
         progressBar = findViewById(R.id.progress_bar);
         btnGenerate = findViewById(R.id.btn_generate);
         btnPlay = findViewById(R.id.btn_play);
         btnSave = findViewById(R.id.btn_save);
         textInput = findViewById(R.id.text_input);
-        btnParamsHelp = findViewById(R.id.btn_params_help);
 
-        // New param controls
         btnRefAudio = findViewById(R.id.btn_ref_audio);
         btnRefDefault = findViewById(R.id.btn_ref_default);
         refAudioName = findViewById(R.id.ref_audio_name);
         refTextInput = findViewById(R.id.ref_text_input);
-        paramsContainer = findViewById(R.id.params_container);
-        btnResetParams = findViewById(R.id.btn_reset_params);
         speedSeekbar = findViewById(R.id.speed_seekbar);
         topkSeekbar = findViewById(R.id.topk_seekbar);
         tempSeekbar = findViewById(R.id.temp_seekbar);
@@ -114,99 +96,116 @@ public class MainActivity extends AppCompatActivity {
         topkValue = findViewById(R.id.topk_value);
         tempValue = findViewById(R.id.temp_value);
 
-        btnSelectModel.setOnClickListener(v -> {
-            if (Build.VERSION.SDK_INT >= 33) {
-                filePicker.launch("application/octet-stream");
+        // ── 加载模型 ──
+        btnLoadModel.setOnClickListener(v -> {
+            if (!engine.isLoaded()) {
+                loadModels();
             } else {
-                filePicker.launch("*/*");
+                Toast.makeText(this, "模型已加载", Toast.LENGTH_SHORT).show();
             }
         });
 
+        // ── 生成 ──
         btnGenerate.setOnClickListener(v -> {
-            if (engine.isLoaded()) {
-                setBusy(true);
-                generate();
-            } else {
-                Toast.makeText(this, "请先选择模型", Toast.LENGTH_SHORT).show();
+            if (!engine.isLoaded()) {
+                Toast.makeText(this, "请先加载模型", Toast.LENGTH_SHORT).show();
+                return;
             }
+            String txt = textInput.getText().toString().trim();
+            if (txt.isEmpty()) {
+                Toast.makeText(this, "请输入文本", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (refAudioPath == null || refAudioPath.isEmpty()) {
+                Toast.makeText(this, "请先选择参考音频", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            generate(txt);
         });
 
+        // ── 播放 ──
         btnPlay.setOnClickListener(v -> {
             if (lastWav != null) playAudio(lastWav);
             else Toast.makeText(this, "请先生成语音", Toast.LENGTH_SHORT).show();
         });
 
+        // ── 保存 ──
         btnSave.setOnClickListener(v -> {
             if (lastWav != null) checkStorageAndSave();
             else Toast.makeText(this, "请先生成语音", Toast.LENGTH_SHORT).show();
         });
 
-        btnParamsHelp.setOnClickListener(v -> showParamsHelp());
-
-        // ---- New param control listeners ----
+        // ── 参考音频 ──
         btnRefAudio.setOnClickListener(v -> refAudioPicker.launch("audio/*"));
-
         btnRefDefault.setOnClickListener(v -> loadDefaultRefAudio());
 
-        btnResetParams.setOnClickListener(v -> {
-            speedSeekbar.setProgress(50);
-            topkSeekbar.setProgress(15);
-            tempSeekbar.setProgress(80);
-        });
-
+        // ── 参数监听 ──
         speedSeekbar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
-                float val = 0.5f + p / 50.0f;
-                speedValue.setText(String.format("%.1f", val));
+                speedValue.setText(String.format("%.1f", 0.5f + p / 50f));
             }
             public void onStartTrackingTouch(SeekBar sb) {}
             public void onStopTrackingTouch(SeekBar sb) {}
         });
-
         topkSeekbar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
-                int val = Math.max(1, p);
-                topkValue.setText(String.valueOf(val));
+                topkValue.setText(String.valueOf(Math.max(1, p)));
             }
             public void onStartTrackingTouch(SeekBar sb) {}
             public void onStopTrackingTouch(SeekBar sb) {}
         });
-
         tempSeekbar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
-                float val = p / 100.0f;
-                tempValue.setText(String.format("%.2f", val));
+                tempValue.setText(String.format("%.2f", p / 100f));
             }
             public void onStartTrackingTouch(SeekBar sb) {}
             public void onStopTrackingTouch(SeekBar sb) {}
         });
-
-        paramsContainer.setVisibility(View.VISIBLE);
     }
 
-    private void loadModelFromUri(Uri uri) {
+    // ──────── 模型加载 ────────
+
+    private void loadModels() {
         setBusy(true);
         statusText.setText("正在加载模型…");
 
         new Thread(() -> {
             try {
-                String fileName = "model_" + System.currentTimeMillis() + ".onnx";
-                File cacheFile = new File(getCacheDir(), fileName);
-                try (InputStream is = getContentResolver().openInputStream(uri);
-                     FileOutputStream fos = new FileOutputStream(cacheFile)) {
-                    byte[] buf = new byte[8192];
-                    int n;
-                    while ((n = is.read(buf)) > 0) fos.write(buf, 0, n);
+                // 尝试从 assets 加载
+                try {
+                    engine.loadModelsFromAssets(this);
+                    runOnUiThread(() -> {
+                        setBusy(false);
+                        statusText.setText("✅ 模型加载完成！");
+                        btnLoadModel.setEnabled(false);
+                        Toast.makeText(this, "模型已就绪", Toast.LENGTH_SHORT).show();
+                    });
+                    return;
+                } catch (Exception e) {
+                    Log.w("YuukaTTS", "assets 加载失败，尝试外部存储: " + e.getMessage());
                 }
 
-                engine.loadModel(cacheFile.getAbsolutePath());
-                lastModelPath = cacheFile.getAbsolutePath();
+                // 尝试从外部存储 models/yuka/ 目录加载
+                File extDir = Environment.getExternalStorageDirectory();
+                File modelDir = new File(extDir, "models/yuka");
+                if (modelDir.exists()) {
+                    engine.loadModels(modelDir.getAbsolutePath());
+                    runOnUiThread(() -> {
+                        setBusy(false);
+                        statusText.setText("✅ 模型加载完成！");
+                        btnLoadModel.setEnabled(false);
+                        Toast.makeText(this, "模型已就绪", Toast.LENGTH_SHORT).show();
+                    });
+                    return;
+                }
 
+                // 都不行，提示用户
                 runOnUiThread(() -> {
-                    updateModelInfo();
-                    buildTensorInputs();
                     setBusy(false);
-                    statusText.setText("模型已加载！" + getModelFileSize(cacheFile));
+                    statusText.setText("❌ 未找到模型文件");
+                    Toast.makeText(this,
+                            "请将 bert_model.pt, ssl_model.pt, gpt_sovits_model.pt\n放入手机存储的 models/yuka/ 目录",
+                            Toast.LENGTH_LONG).show();
                 });
 
             } catch (Exception e) {
@@ -219,88 +218,60 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
 
-    private String getModelFileSize(File f) {
-        long sz = f.length();
-        if (sz < 1024) return sz + "B";
-        if (sz < 1048576) return (sz / 1024) + "KB";
-        return String.format("%.1fMB", sz / 1048576.0);
-    }
+    // ──────── 推理 ────────
 
-    private void updateModelInfo() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("模型已加载\n\n");
-        sb.append("输入：\n");
-        for (TTSEngine.ModelInputInfo info : engine.getInputInfos().values()) {
-            sb.append("  • ").append(info.name).append(" ").append(info.shapeStr)
-              .append(" ").append(info.type).append("\n");
-        }
-        sb.append("\n输出：\n");
-        for (TTSEngine.ModelOutputInfo info : engine.getOutputInfos().values()) {
-            sb.append("  • ").append(info.name).append(" ").append(info.shapeStr)
-              .append(" ").append(info.type).append("\n");
-        }
-        modelInfoText.setText(sb.toString());
-        modelInfoText.setVisibility(View.VISIBLE);
-    }
+    private void generate(String text) {
+        if (generating) return;
+        generating = true;
+        setBusy(true);
+        statusText.setText("正在生成语音…");
 
-    private void buildTensorInputs() {
-        paramsContainer.setVisibility(View.VISIBLE);
-    }
+        float speed = getSpeedParam();
+        int topK = getTopKParam();
+        float temp = getTempParam();
+        String refAudio = refAudioPath;
+        String refText = refTextInput.getText().toString().trim();
 
-    private void generate() {
         new Thread(() -> {
             try {
-                Map<String, Object> inputData = new java.util.LinkedHashMap<>();
-                String txt = textInput.getText().toString().trim();
-                if (!txt.isEmpty()) {
-                    for (TTSEngine.ModelInputInfo info : engine.getInputInfos().values()) {
-                        if (info.type == ai.onnxruntime.OnnxJavaType.INT64) {
-                            long[] charCodes = new long[txt.length()];
-                            for (int j = 0; j < txt.length(); j++)
-                                charCodes[j] = txt.charAt(j);
-                            inputData.put(info.name, charCodes);
-                            break;
-                        }
-                    }
+                float[] audio;
+                if (refAudio != null && !refAudio.isEmpty()) {
+                    audio = engine.synthesize(text, refAudio, refText, speed, topK, temp);
+                } else {
+                    audio = engine.synthesizeSimple(text, speed, topK, temp);
                 }
-
-                if (inputData.isEmpty()) {
-                    runOnUiThread(() -> {
-                        setBusy(false);
-                        statusText.setText("请输入张量数值或文本");
-                    });
-                    return;
-                }
-
-                runOnUiThread(() -> statusText.setText("正在推理…"));
-                float[] audio = engine.runInference(inputData, getSpeedParam(), getTopKParam(), getTempParam());
                 lastWav = engine.audioToWav(audio);
 
-                float durationSec = audio.length / (float) engine.getSampleRate();
+                float dur = audio.length / (float) engine.getSampleRate();
                 runOnUiThread(() -> {
+                    generating = false;
                     setBusy(false);
-                    statusText.setText(String.format("完成！%.1f 秒音频（%.0f KB）", 
-                            durationSec, lastWav.length / 1024.0));
+                    statusText.setText(String.format("✅ 完成！%.1f 秒音频（%.0f KB）",
+                            dur, lastWav.length / 1024f));
                     btnPlay.setEnabled(true);
                     btnSave.setEnabled(true);
+                    // 自动播放
                     playAudio(lastWav);
                 });
 
             } catch (Exception e) {
+                Log.e("YuukaTTS", "推理失败", e);
                 runOnUiThread(() -> {
+                    generating = false;
                     setBusy(false);
-                    statusText.setText("出错：" + e.getMessage());
-                    Toast.makeText(this, "推理失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
+                    statusText.setText("❌ 推理失败：" + e.getMessage());
+                    Toast.makeText(this, "生成失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
                 });
             }
         }).start();
     }
 
+    // ──────── 音频播放 ────────
+
     private void playAudio(byte[] wavData) {
         try {
             if (wavData.length < 44) return;
-            int dataOffset = 44;
-            int pcmLen = wavData.length - dataOffset;
+            int pcmLen = wavData.length - 44;
             int minSize = AudioTrack.getMinBufferSize(
                     engine.getSampleRate(),
                     AudioFormat.CHANNEL_OUT_MONO,
@@ -320,13 +291,15 @@ public class MainActivity extends AppCompatActivity {
                     .setTransferMode(AudioTrack.MODE_STATIC)
                     .build();
 
-            track.write(wavData, dataOffset, pcmLen);
+            track.write(wavData, 44, pcmLen);
             track.play();
             track.release();
         } catch (Exception e) {
-            statusText.setText("播放失败：" + e.getMessage());
+            Log.w("YuukaTTS", "播放失败", e);
         }
     }
+
+    // ──────── 保存 ────────
 
     private void checkStorageAndSave() {
         if (Build.VERSION.SDK_INT >= 30) {
@@ -342,37 +315,27 @@ public class MainActivity extends AppCompatActivity {
     private void saveAudio() {
         try {
             String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
-            String name = "tts_" + ts + ".wav";
-            File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            String name = "yuka_" + ts + ".wav";
+            File dir;
+            if (Build.VERSION.SDK_INT >= 30) {
+                dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            } else {
+                dir = new File(Environment.getExternalStorageDirectory(), "YuukaTTS");
+            }
             dir.mkdirs();
             File file = new File(dir, name);
             try (FileOutputStream fos = new FileOutputStream(file)) {
                 fos.write(lastWav);
             }
-            statusText.setText("已保存：" + name);
-            Toast.makeText(this, "已保存到 Downloads/" + name, Toast.LENGTH_SHORT).show();
+            statusText.setText("已保存到 " + dir.getName() + "/" + name);
+            Toast.makeText(this, "已保存：" + name, Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             statusText.setText("保存失败：" + e.getMessage());
+            Toast.makeText(this, "保存失败", Toast.LENGTH_SHORT).show();
         }
     }
 
-    private void showParamsHelp() {
-        AlertDialog.Builder b = new AlertDialog.Builder(this);
-        b.setTitle("使用说明");
-        b.setMessage(
-                "1. 点击「选择 ONNX 模型」选取 .onnx 文件\n" +
-                "2. 选择一段参考音频（或使用默认）\n" +
-                "3. 输入想要合成的文本\n" +
-                "4. 可选：填写参考音频对应的文本\n" +
-                "5. 调节语速、top_k、随机度参数\n" +
-                "6. 点击「生成语音」→「播放」→「保存」\n\n" +
-                "语速：0.5~2.5，默认 1.0\n" +
-                "top_k：采样范围，越小越稳定\n" +
-                "随机度：温度参数，越高越多样"
-        );
-        b.setPositiveButton("确定", null);
-        b.show();
-    }
+    // ──────── 参考音频 ────────
 
     private String getFileNameFromUri(Uri uri) {
         String path = uri.getLastPathSegment();
@@ -394,8 +357,10 @@ public class MainActivity extends AppCompatActivity {
                     while ((n = is.read(buf)) > 0) fos.write(buf, 0, n);
                 }
                 refAudioPath = cacheFile.getAbsolutePath();
+                Log.i("YuukaTTS", "参考音频已缓存: " + refAudioPath);
             } catch (Exception e) {
-                runOnUiThread(() -> Toast.makeText(this, "加载参考音频失败", Toast.LENGTH_SHORT).show());
+                runOnUiThread(() ->
+                        Toast.makeText(this, "加载参考音频失败", Toast.LENGTH_SHORT).show());
             }
         }).start();
     }
@@ -403,7 +368,10 @@ public class MainActivity extends AppCompatActivity {
     private void loadDefaultRefAudio() {
         try {
             String[] files = getAssets().list("");
-            boolean found = false;
+            if (files == null) {
+                Toast.makeText(this, "未找到默认参考音频", Toast.LENGTH_SHORT).show();
+                return;
+            }
             for (String f : files) {
                 if (f.startsWith("ref_audio") && (f.endsWith(".wav") || f.endsWith(".ogg"))) {
                     File cacheFile = new File(getCacheDir(), f);
@@ -414,34 +382,34 @@ public class MainActivity extends AppCompatActivity {
                         while ((n = is.read(buf)) > 0) fos.write(buf, 0, n);
                     }
                     refAudioPath = cacheFile.getAbsolutePath();
-                    refAudioName.setText("已选择：默认参考音频");
-                    found = true;
-                    break;
+                    refAudioName.setText("默认参考音频");
+                    Log.i("YuukaTTS", "默认参考音频: " + refAudioPath);
+                    return;
                 }
             }
-            if (!found) {
-                Toast.makeText(this, "未找到默认参考音频，请手动选择", Toast.LENGTH_SHORT).show();
-            }
+            Toast.makeText(this, "未找到默认参考音频", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
-            Toast.makeText(this, "未找到默认参考音频，请手动选择", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "未找到默认参考音频", Toast.LENGTH_SHORT).show();
         }
     }
 
-    private float getSpeedParam() {
-        return 0.5f + speedSeekbar.getProgress() / 50.0f;
-    }
+    // ──────── 参数 ────────
 
+    private float getSpeedParam() {
+        return 0.5f + speedSeekbar.getProgress() / 50f;
+    }
     private int getTopKParam() {
         return Math.max(1, topkSeekbar.getProgress());
     }
-
     private float getTempParam() {
-        return tempSeekbar.getProgress() / 100.0f;
+        return tempSeekbar.getProgress() / 100f;
     }
+
+    // ──────── UI状态 ────────
 
     private void setBusy(boolean busy) {
         progressBar.setVisibility(busy ? View.VISIBLE : View.GONE);
-        btnSelectModel.setEnabled(!busy);
+        btnLoadModel.setEnabled(!busy && !engine.isLoaded());
         btnGenerate.setEnabled(!busy);
         btnPlay.setEnabled(false);
         btnSave.setEnabled(false);
@@ -451,5 +419,12 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         if (engine != null) engine.close();
+    }
+
+    // Log
+    private static class Log {
+        static void i(String tag, String msg) { android.util.Log.i(tag, msg); }
+        static void w(String tag, String msg) { android.util.Log.w(tag, msg); }
+        static void e(String tag, String msg, Throwable tr) { android.util.Log.e(tag, msg, tr); }
     }
 }

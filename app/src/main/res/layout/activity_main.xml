@@ -10,50 +10,36 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp"
-        android:gravity="center_horizontal">
+        android:padding="16dp">
 
         <!-- 标题 -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="优香TTS"
+            android:text="YuukaTTS"
             android:textColor="#ffffff"
-            android:textSize="26sp"
+            android:textSize="28sp"
             android:textStyle="bold"
-            android:layout_marginBottom="4dp" />
+            android:layout_marginBottom="2dp" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="通用ONNX语音合成引擎"
+            android:text="优香 · 日语语音合成"
             android:textColor="#888888"
             android:textSize="13sp"
             android:layout_marginBottom="20dp" />
 
-        <!-- 选择模型按钮 -->
+        <!-- 加载模型 -->
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_select_model"
+            android:id="@+id/btn_load_model"
             android:layout_width="match_parent"
             android:layout_height="52dp"
-            android:text="📂 选择 ONNX 模型"
+            android:text="🤖 加载模型"
             android:textColor="#ffffff"
-            android:backgroundTint="#4a8ae0"
+            android:backgroundTint="#e94560"
             android:textSize="16sp"
             app:cornerRadius="12dp" />
-
-        <TextView
-            android:id="@+id/model_info"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:visibility="gone"
-            android:textColor="#aaaaaa"
-            android:textSize="12sp"
-            android:typeface="monospace"
-            android:padding="12dp"
-            android:layout_marginTop="12dp"
-            android:background="#0f3460"
-            android:gravity="start" />
 
         <ProgressBar
             android:id="@+id/progress_bar"
@@ -64,11 +50,30 @@
             android:indeterminate="true"
             android:layout_marginTop="8dp" />
 
-        <!-- 输入文本 -->
+        <TextView
+            android:id="@+id/status_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="点击「加载模型」开始使用"
+            android:textColor="#aaaaaa"
+            android:textSize="13sp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="4dp" />
+
+        <!-- 文本输入 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="输入文本"
+            android:textColor="#e94560"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="6dp" />
+
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
             app:cardCornerRadius="12dp"
             app:cardBackgroundColor="#0f3460">
 
@@ -76,9 +81,9 @@
                 android:id="@+id/text_input"
                 android:layout_width="match_parent"
                 android:layout_height="100dp"
-                android:gravity="top"
+                android:gravity="top|start"
                 android:padding="14dp"
-                android:hint="输入想要合成的文本"
+                android:hint="输入要合成的日语文本…"
                 android:textColorHint="#555555"
                 android:textColor="#ffffff"
                 android:textSize="15sp"
@@ -87,221 +92,187 @@
                 android:maxLength="500" />
         </androidx.cardview.widget.CardView>
 
-        <!-- 参考音频区域 -->
+        <!-- 参考音频 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="参考音频"
+            android:textColor="#e94560"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="2dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="选择一段优香的语音作为音色参考"
+            android:textColor="#888888"
+            android:textSize="12sp"
+            android:layout_marginBottom="8dp" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:layout_marginTop="16dp">
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="参考音频"
-                android:textColor="#4a8ae0"
-                android:textSize="15sp"
-                android:textStyle="bold"
-                android:layout_marginBottom="4dp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="提供一段目标音色的语音作为参考"
-                android:textColor="#888888"
-                android:textSize="12sp"
-                android:layout_marginBottom="8dp" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_ref_audio"
-                    android:layout_width="0dp"
-                    android:layout_height="44dp"
-                    android:layout_weight="1"
-                    android:text="🎵 选择参考音频"
-                    android:textColor="#ffffff"
-                    android:backgroundTint="#2a2a4e"
-                    android:textSize="13sp"
-                    app:cornerRadius="10dp" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_ref_default"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
-                    android:text="默认"
-                    android:textColor="#888888"
-                    android:backgroundTint="#1f1f3a"
-                    android:textSize="11sp"
-                    app:cornerRadius="10dp"
-                    android:layout_marginStart="8dp" />
-            </LinearLayout>
-
-            <TextView
-                android:id="@+id/ref_audio_name"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="未选择"
-                android:textColor="#666666"
-                android:textSize="11sp"
-                android:layout_marginTop="4dp" />
-
-            <!-- 参考文本 -->
-            <EditText
-                android:id="@+id/ref_text_input"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:padding="12dp"
-                android:hint="参考音频对应的文本（可选）"
-                android:textColorHint="#444444"
-                android:textColor="#aaaaaa"
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_ref_audio"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:text="🎵 选择参考音频"
+                android:textColor="#ffffff"
+                android:backgroundTint="#2a2a4e"
                 android:textSize="13sp"
-                android:background="@drawable/edit_bg"
-                android:inputType="textMultiLine"
-                android:maxLines="2"
-                android:minHeight="40dp" />
+                app:cornerRadius="10dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_ref_default"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:text="使用默认"
+                android:textColor="#888888"
+                android:backgroundTint="#1f1f3a"
+                android:textSize="12sp"
+                app:cornerRadius="10dp"
+                android:layout_marginStart="8dp"
+                android:paddingHorizontal="12dp" />
         </LinearLayout>
 
-        <!-- 推理参数区域 -->
+        <TextView
+            android:id="@+id/ref_audio_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="未选择"
+            android:textColor="#666666"
+            android:textSize="11sp"
+            android:layout_marginTop="4dp" />
+
+        <EditText
+            android:id="@+id/ref_text_input"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:padding="12dp"
+            android:hint="参考音频对应的文本（可选）"
+            android:textColorHint="#444444"
+            android:textColor="#aaaaaa"
+            android:textSize="13sp"
+            android:background="@drawable/edit_bg"
+            android:inputType="textMultiLine"
+            android:maxLines="2"
+            android:minHeight="40dp" />
+
+        <!-- 推理参数 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="推理参数"
+            android:textColor="#e94560"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="6dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="语速"
+            android:textColor="#cccccc"
+            android:textSize="13sp"
+            android:layout_marginTop="8dp" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:layout_marginTop="16dp"
-            android:visibility="gone"
-            android:id="@+id/params_container">
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
+            <SeekBar
+                android:id="@+id/speed_seekbar"
+                android:layout_width="0dp"
+                android:layout_height="30dp"
+                android:layout_weight="1"
+                android:max="100"
+                android:progress="50"
+                android:thumbTint="#e94560" />
 
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="推理参数"
-                    android:textColor="#4a8ae0"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_reset_params"
-                    android:layout_width="48dp"
-                    android:layout_height="32dp"
-                    android:text="重置"
-                    android:textColor="#888888"
-                    android:backgroundTint="#2a2a3e"
-                    android:textSize="11sp"
-                    app:cornerRadius="8dp" />
-            </LinearLayout>
-
-            <!-- 语速 -->
             <TextView
-                android:layout_width="wrap_content"
+                android:id="@+id/speed_value"
+                android:layout_width="40dp"
                 android:layout_height="wrap_content"
-                android:text="语速"
-                android:textColor="#cccccc"
+                android:text="1.0"
+                android:textColor="#ffffff"
                 android:textSize="13sp"
-                android:layout_marginTop="12dp" />
+                android:gravity="end" />
+        </LinearLayout>
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Top-K"
+            android:textColor="#cccccc"
+            android:textSize="13sp"
+            android:layout_marginTop="8dp" />
 
-                <SeekBar
-                    android:id="@+id/speed_seekbar"
-                    android:layout_width="0dp"
-                    android:layout_height="30dp"
-                    android:layout_weight="1"
-                    android:max="100"
-                    android:progress="50"
-                    android:thumbTint="#4a8ae0" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-                <TextView
-                    android:id="@+id/speed_value"
-                    android:layout_width="40dp"
-                    android:layout_height="wrap_content"
-                    android:text="1.0"
-                    android:textColor="#ffffff"
-                    android:textSize="13sp"
-                    android:gravity="end" />
-            </LinearLayout>
+            <SeekBar
+                android:id="@+id/topk_seekbar"
+                android:layout_width="0dp"
+                android:layout_height="30dp"
+                android:layout_weight="1"
+                android:max="100"
+                android:progress="15"
+                android:thumbTint="#e94560" />
 
-            <!-- top_k -->
             <TextView
-                android:layout_width="wrap_content"
+                android:id="@+id/topk_value"
+                android:layout_width="40dp"
                 android:layout_height="wrap_content"
-                android:text="top_k"
-                android:textColor="#cccccc"
+                android:text="15"
+                android:textColor="#ffffff"
                 android:textSize="13sp"
-                android:layout_marginTop="8dp" />
+                android:gravity="end" />
+        </LinearLayout>
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="随机度"
+            android:textColor="#cccccc"
+            android:textSize="13sp"
+            android:layout_marginTop="8dp" />
 
-                <SeekBar
-                    android:id="@+id/topk_seekbar"
-                    android:layout_width="0dp"
-                    android:layout_height="30dp"
-                    android:layout_weight="1"
-                    android:max="100"
-                    android:progress="15"
-                    android:thumbTint="#4a8ae0" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-                <TextView
-                    android:id="@+id/topk_value"
-                    android:layout_width="40dp"
-                    android:layout_height="wrap_content"
-                    android:text="15"
-                    android:textColor="#ffffff"
-                    android:textSize="13sp"
-                    android:gravity="end" />
-            </LinearLayout>
+            <SeekBar
+                android:id="@+id/temp_seekbar"
+                android:layout_width="0dp"
+                android:layout_height="30dp"
+                android:layout_weight="1"
+                android:max="100"
+                android:progress="80"
+                android:thumbTint="#e94560" />
 
-            <!-- temperature -->
             <TextView
-                android:layout_width="wrap_content"
+                android:id="@+id/temp_value"
+                android:layout_width="40dp"
                 android:layout_height="wrap_content"
-                android:text="随机度"
-                android:textColor="#cccccc"
+                android:text="0.80"
+                android:textColor="#ffffff"
                 android:textSize="13sp"
-                android:layout_marginTop="8dp" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <SeekBar
-                    android:id="@+id/temp_seekbar"
-                    android:layout_width="0dp"
-                    android:layout_height="30dp"
-                    android:layout_weight="1"
-                    android:max="100"
-                    android:progress="80"
-                    android:thumbTint="#4a8ae0" />
-
-                <TextView
-                    android:id="@+id/temp_value"
-                    android:layout_width="40dp"
-                    android:layout_height="wrap_content"
-                    android:text="0.8"
-                    android:textColor="#ffffff"
-                    android:textSize="13sp"
-                    android:gravity="end" />
-            </LinearLayout>
+                android:gravity="end" />
         </LinearLayout>
 
         <!-- 生成按钮 -->
@@ -311,28 +282,19 @@
             android:layout_height="52dp"
             android:text="🎧 生成语音"
             android:textColor="#ffffff"
-            android:backgroundTint="#4a8ae0"
+            android:backgroundTint="#e94560"
             android:textSize="16sp"
             app:cornerRadius="12dp"
             android:layout_marginTop="16dp" />
-
-        <!-- 状态文字 -->
-        <TextView
-            android:id="@+id/status_text"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="请选择一个模型开始使用"
-            android:textColor="#aaaaaa"
-            android:textSize="13sp"
-            android:layout_marginTop="8dp" />
 
         <!-- 播放 & 保存 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center"
-            android:layout_marginTop="12dp">
+            android:layout_marginTop="10dp"
+            android:gravity="center">
+
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_play"
                 android:layout_width="0dp"
@@ -345,6 +307,7 @@
                 android:enabled="false"
                 android:layout_marginEnd="6dp"
                 app:cornerRadius="12dp" />
+
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_save"
                 android:layout_width="0dp"
@@ -353,24 +316,16 @@
                 android:text="💾 保存"
                 android:textSize="16sp"
                 android:textColor="#ffffff"
-                android:backgroundTint="#7b2d8b"
+                android:backgroundTint="#0f3460"
                 android:enabled="false"
                 android:layout_marginStart="6dp"
                 app:cornerRadius="12dp" />
         </LinearLayout>
 
-        <!-- 使用说明 -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_params_help"
+        <!-- 底部留白 -->
+        <View
             android:layout_width="match_parent"
-            android:layout_height="44dp"
-            android:text="❓ 使用说明"
-            android:textColor="#888888"
-            android:backgroundTint="#2a2a3e"
-            android:textSize="13sp"
-            app:cornerRadius="10dp"
-            android:layout_marginTop="12dp"
-            android:layout_marginBottom="24dp" />
+            android:layout_height="32dp" />
 
     </LinearLayout>
 </ScrollView>

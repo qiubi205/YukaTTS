@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.YukaTTS" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="colorPrimary">#4a8ae0</item>
-        <item name="colorPrimaryVariant">#3468a0</item>
+    <style name="Theme.YuukaTTS" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#e94560</item>
+        <item name="colorPrimaryVariant">#c73e54</item>
         <item name="colorOnPrimary">#ffffff</item>
-        <item name="colorSecondary">#7b2d8b</item>
+        <item name="colorSecondary">#e94560</item>
         <item name="android:statusBarColor">#1a1a2e</item>
         <item name="android:navigationBarColor">#1a1a2e</item>
     </style>
