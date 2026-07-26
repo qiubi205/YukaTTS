@@ -19,6 +19,7 @@ import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.SeekBar;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -52,6 +53,16 @@ public class MainActivity extends AppCompatActivity {
     private View tensorInputsContainer;
     private LinearLayout tensorInputsLayout;
     private Button btnParamsHelp;
+    // New params fields
+    private Button btnRefAudio, btnRefDefault, btnResetParams;
+    private TextView refAudioName;
+    private EditText refTextInput;
+    private View paramsContainer;
+    private SeekBar speedSeekbar, topkSeekbar, tempSeekbar;
+    private TextView speedValue, topkValue, tempValue;
+    private Uri refAudioUri;
+    private String refAudioPath;
+
 
     private byte[] lastWav;
     private String lastModelPath;
@@ -66,6 +77,16 @@ public class MainActivity extends AppCompatActivity {
             });
 
     private final ActivityResultLauncher<String> storagePerm =
+
+    private final ActivityResultLauncher<String> refAudioPicker =
+            registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
+                if (uri != null) {
+                    refAudioUri = uri;
+                    refAudioName.setText("已选择：" + getFileNameFromUri(uri));
+                    // Copy to cache for processing
+                    copyRefAudioToCache(uri);
+                }
+            });
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
                 if (granted) saveAudio();
                 else Toast.makeText(this, "需要存储权限", Toast.LENGTH_SHORT).show();
@@ -88,6 +109,19 @@ public class MainActivity extends AppCompatActivity {
         textInput = findViewById(R.id.text_input);
         tensorInputsContainer = findViewById(R.id.tensor_inputs_container);
         tensorInputsLayout = findViewById(R.id.tensor_inputs_layout);
+        // New param controls
+        btnRefAudio = findViewById(R.id.btn_ref_audio);
+        btnRefDefault = findViewById(R.id.btn_ref_default);
+        refAudioName = findViewById(R.id.ref_audio_name);
+        refTextInput = findViewById(R.id.ref_text_input);
+        paramsContainer = findViewById(R.id.params_container);
+        btnResetParams = findViewById(R.id.btn_reset_params);
+        speedSeekbar = findViewById(R.id.speed_seekbar);
+        topkSeekbar = findViewById(R.id.topk_seekbar);
+        tempSeekbar = findViewById(R.id.temp_seekbar);
+        speedValue = findViewById(R.id.speed_value);
+        topkValue = findViewById(R.id.topk_value);
+        tempValue = findViewById(R.id.temp_value);
         btnParamsHelp = findViewById(R.id.btn_params_help);
 
         btnSelectModel.setOnClickListener(v -> {
@@ -124,6 +158,51 @@ public class MainActivity extends AppCompatActivity {
     private void loadModelFromUri(Uri uri) {
         setBusy(true);
         statusText.setText("正在加载模型…");
+
+        // ---- New param control listeners ----
+
+        btnRefAudio.setOnClickListener(v -> refAudioPicker.launch("audio/*"));
+
+        btnRefDefault.setOnClickListener(v -> {
+            // Use default reference audio from assets
+            loadDefaultRefAudio();
+        });
+
+        btnResetParams.setOnClickListener(v -> {
+            speedSeekbar.setProgress(50);
+            topkSeekbar.setProgress(15);
+            tempSeekbar.setProgress(80);
+        });
+
+        speedSeekbar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
+                float val = 0.5f + p / 50.0f;
+                speedValue.setText(String.format("%.1f", val));
+            }
+            public void onStartTrackingTouch(SeekBar sb) {}
+            public void onStopTrackingTouch(SeekBar sb) {}
+        });
+
+        topkSeekbar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
+                int val = Math.max(1, p);
+                topkValue.setText(String.valueOf(val));
+            }
+            public void onStartTrackingTouch(SeekBar sb) {}
+            public void onStopTrackingTouch(SeekBar sb) {}
+        });
+
+        tempSeekbar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
+                float val = p / 100.0f;
+                tempValue.setText(String.format("%.2f", val));
+            }
+            public void onStartTrackingTouch(SeekBar sb) {}
+            public void onStopTrackingTouch(SeekBar sb) {}
+        });
+
+        // Show params container after model is loaded (hide now, show in updateModelInfo)
+        paramsContainer.setVisibility(View.GONE);
 
         new Thread(() -> {
             try {
@@ -252,6 +331,7 @@ public class MainActivity extends AppCompatActivity {
         tensorInputsLayout.addView(modeHint);
 
         tensorInputsContainer.setVisibility(View.VISIBLE);
+        paramsContainer.setVisibility(View.VISIBLE);
     }
 
     private void generate() {
@@ -314,7 +394,7 @@ public class MainActivity extends AppCompatActivity {
                 }
 
                 runOnUiThread(() -> statusText.setText("正在推理…"));
-                float[] audio = engine.runInference(inputData);
+                engine.runInference(inputData, getSpeedParam(), getTopKParam(), getTempParam());
                 lastWav = engine.audioToWav(audio);
 
                 float durationSec = audio.length / (float) engine.getSampleRate();
@@ -408,15 +488,84 @@ public class MainActivity extends AppCompatActivity {
         b.setTitle("使用说明");
         b.setMessage(
                 "1. 点击「选择 ONNX 模型」选取 .onnx 文件\n" +
-                "2. 应用会显示模型的输入输出张量信息\n" +
-                "3. 为每个输入填入逗号分隔的数值\n" +
-                "4. 或直接输入文本（自动转为字符编码）\n" +
-                "5. 点击生成 → 播放 → 保存\n\n" +
-                "提示：使用 GPT-SoVITS 模型时，请参考模型文档\n" +
-                "获取正确的输入张量顺序和取值范围。"
+                "2. 选择一段参考音频（或使用默认）\n" +
+                "3. 输入想要合成的文本\n" +
+                "4. 可选：填写参考音频对应的文本\n" +
+                "5. 调节语速、top_k、随机度参数\n" +
+                "6. 点击「生成语音」→「播放」→「保存」\n\n" +
+                "语速：0.5~2.5，默认 1.0\n" +
+                "top_k：采样范围，越小越稳定\n" +
+                "随机度：温度参数，越高越多样"
         );
         b.setPositiveButton("确定", null);
         b.show();
+    }
+
+
+    private String getFileNameFromUri(Uri uri) {
+        String path = uri.getLastPathSegment();
+        if (path != null) {
+            int cut = path.lastIndexOf('/');
+            if (cut >= 0) path = path.substring(cut + 1);
+        }
+        return path != null ? path : "audio";
+    }
+
+    private void copyRefAudioToCache(Uri uri) {
+        new Thread(() -> {
+            try {
+                File cacheFile = new File(getCacheDir(), "ref_audio.wav");
+                try (InputStream is = getContentResolver().openInputStream(uri);
+                     FileOutputStream fos = new FileOutputStream(cacheFile)) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = is.read(buf)) > 0) fos.write(buf, 0, n);
+                }
+                refAudioPath = cacheFile.getAbsolutePath();
+            } catch (Exception e) {
+                runOnUiThread(() -> Toast.makeText(this, "加载参考音频失败", Toast.LENGTH_SHORT).show());
+            }
+        }).start();
+    }
+
+    private void loadDefaultRefAudio() {
+        try {
+            // Try to copy default ref audio from assets
+            String[] files = getAssets().list("");
+            boolean found = false;
+            for (String f : files) {
+                if (f.startsWith("ref_audio") && (f.endsWith(".wav") || f.endsWith(".ogg"))) {
+                    File cacheFile = new File(getCacheDir(), f);
+                    try (InputStream is = getAssets().open(f);
+                         FileOutputStream fos = new FileOutputStream(cacheFile)) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = is.read(buf)) > 0) fos.write(buf, 0, n);
+                    }
+                    refAudioPath = cacheFile.getAbsolutePath();
+                    refAudioName.setText("已选择：默认参考音频");
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                Toast.makeText(this, "未找到默认参考音频，请手动选择", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception e) {
+            Toast.makeText(this, "未找到默认参考音频，请手动选择", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private float getSpeedParam() {
+        return 0.5f + speedSeekbar.getProgress() / 50.0f;
+    }
+
+    private int getTopKParam() {
+        return Math.max(1, topkSeekbar.getProgress());
+    }
+
+    private float getTempParam() {
+        return tempSeekbar.getProgress() / 100.0f;
     }
 
     private void setBusy(boolean busy) {

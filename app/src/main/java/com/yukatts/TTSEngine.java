@@ -86,6 +86,9 @@ public class TTSEngine {
     private OrtEnvironment env;
     private OrtSession session;
     private boolean loaded = false;
+    private float speedParam = 1.0f;
+    private int topKParam = 15;
+    private float tempParam = 0.8f;
     private String modelPath;
 
     // Model metadata (populated after load)
@@ -130,6 +133,7 @@ public class TTSEngine {
         }
 
         Log.i(TAG, "Model loaded: " + filePath);
+        Log.i(TAG, "  Speed=" + speedParam + " topK=" + topKParam + " temp=" + tempParam);
         for (ModelInputInfo info : inputInfos.values()) {
             Log.i(TAG, "  Input: " + info.name + " " + info.shapeStr + " type=" + info.type);
         }
@@ -146,6 +150,9 @@ public class TTSEngine {
 
     public void setSampleRate(int sr) { this.sampleRate = sr; }
     public int getSampleRate() { return sampleRate; }
+    public float getSpeedParam() { return speedParam; }
+    public int getTopKParam() { return topKParam; }
+    public float getTempParam() { return tempParam; }
 
     /**
      * Run inference with provided tensor values.
@@ -154,7 +161,11 @@ public class TTSEngine {
      * Returns the first float audio output as float[].
      * If no float output found, returns the raw output values as byte[] in audio field (use with caution).
      */
-    public float[] runInference(Map<String, Object> inputData) throws Exception {
+    public float[] runInference(Map<String, Object> inputData, float speed, int topK, float temperature) throws Exception {
+        // Store params for reference (used by specific model implementations)
+        this.speedParam = speed;
+        this.topKParam = topK;
+        this.tempParam = temperature;
         if (!loaded) throw new IllegalStateException("Model not loaded");
 
         Map<String, OnnxTensor> ortInputs = new HashMap<>();
