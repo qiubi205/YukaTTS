@@ -68,7 +68,7 @@ public class MainActivity extends AppCompatActivity {
     private final ActivityResultLauncher<String> storagePerm =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
                 if (granted) saveAudio();
-                else Toast.makeText(this, "Storage permission needed", Toast.LENGTH_SHORT).show();
+                else Toast.makeText(this, "需要存储权限", Toast.LENGTH_SHORT).show();
             });
 
     @Override
@@ -104,18 +104,18 @@ public class MainActivity extends AppCompatActivity {
                 setBusy(true);
                 generate();
             } else {
-                Toast.makeText(this, "Select a model first", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "请先选择模型", Toast.LENGTH_SHORT).show();
             }
         });
 
         btnPlay.setOnClickListener(v -> {
             if (lastWav != null) playAudio(lastWav);
-            else Toast.makeText(this, "Generate first", Toast.LENGTH_SHORT).show();
+            else Toast.makeText(this, "请先生成语音", Toast.LENGTH_SHORT).show();
         });
 
         btnSave.setOnClickListener(v -> {
             if (lastWav != null) checkStorageAndSave();
-            else Toast.makeText(this, "Generate first", Toast.LENGTH_SHORT).show();
+            else Toast.makeText(this, "请先生成语音", Toast.LENGTH_SHORT).show();
         });
 
         btnParamsHelp.setOnClickListener(v -> showParamsHelp());
@@ -123,7 +123,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void loadModelFromUri(Uri uri) {
         setBusy(true);
-        statusText.setText("Loading model...");
+        statusText.setText("正在加载模型…");
 
         new Thread(() -> {
             try {
@@ -144,14 +144,14 @@ public class MainActivity extends AppCompatActivity {
                     updateModelInfo();
                     buildTensorInputs();
                     setBusy(false);
-                    statusText.setText("Model loaded! " + getModelFileSize(cacheFile));
+                    statusText.setText("模型已加载！" + getModelFileSize(cacheFile));
                 });
 
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     setBusy(false);
-                    statusText.setText("Failed: " + e.getMessage());
-                    Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    statusText.setText("加载失败：" + e.getMessage());
+                    Toast.makeText(this, "出错：" + e.getMessage(), Toast.LENGTH_LONG).show();
                 });
             }
         }).start();
@@ -166,13 +166,13 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateModelInfo() {
         StringBuilder sb = new StringBuilder();
-        sb.append("Model loaded\n\n");
-        sb.append("Inputs:\n");
+        sb.append("模型已加载\n\n");
+        sb.append("输入：\n");
         for (TTSEngine.ModelInputInfo info : engine.getInputInfos().values()) {
             sb.append("  • ").append(info.name).append(" ").append(info.shapeStr)
               .append(" ").append(info.type).append("\n");
         }
-        sb.append("\nOutputs:\n");
+        sb.append("\n输出：\n");
         for (TTSEngine.ModelOutputInfo info : engine.getOutputInfos().values()) {
             sb.append("  • ").append(info.name).append(" ").append(info.shapeStr)
               .append(" ").append(info.type).append("\n");
@@ -202,11 +202,11 @@ public class MainActivity extends AppCompatActivity {
             // Hint text
             String hint;
             if (info.type == ai.onnxruntime.OnnxJavaType.FLOAT) {
-                hint = "e.g. 0.5, -0.3, 0.8,...";
+                hint = "例: 0.5, -0.3, 0.8,...";
             } else if (info.type == ai.onnxruntime.OnnxJavaType.INT64) {
-                hint = "e.g. 12, 34, 56,...";
+                hint = "例: 12, 34, 56,...";
             } else {
-                hint = "Comma-separated values";
+                hint = "逗号分隔的数值";
             }
 
             EditText edit = new EditText(this);
@@ -236,7 +236,7 @@ public class MainActivity extends AppCompatActivity {
 
             // Small size hint
             TextView sizeHint = new TextView(this);
-            sizeHint.setText("~ " + numEl + " values" + (info.shape[0]==-1 ? " (dynamic)" : ""));
+            sizeHint.setText("约 " + numEl + " 个值" + (info.shape[0]==-1 ? "（动态）" : ""));
             sizeHint.setTextColor(0xff666666);
             sizeHint.setTextSize(11);
             sizeHint.setPadding(0, 0, 0, 8);
@@ -245,7 +245,7 @@ public class MainActivity extends AppCompatActivity {
 
         // Simple mode hint
         TextView modeHint = new TextView(this);
-        modeHint.setText("Or type text below for simple character-int encoding");
+        modeHint.setText("或输入文本，自动转字符编码");
         modeHint.setTextColor(0xff888888);
         modeHint.setTextSize(12);
         modeHint.setPadding(0, 20, 0, 0);
@@ -308,19 +308,19 @@ public class MainActivity extends AppCompatActivity {
                 if (inputData.isEmpty()) {
                     runOnUiThread(() -> {
                         setBusy(false);
-                        statusText.setText("Provide tensor values or text");
+                        statusText.setText("请输入张量数值或文本");
                     });
                     return;
                 }
 
-                runOnUiThread(() -> statusText.setText("Running inference..."));
+                runOnUiThread(() -> statusText.setText("正在推理…"));
                 float[] audio = engine.runInference(inputData);
                 lastWav = engine.audioToWav(audio);
 
                 float durationSec = audio.length / (float) engine.getSampleRate();
                 runOnUiThread(() -> {
                     setBusy(false);
-                    statusText.setText(String.format("Done! %.1f sec audio (%.0f KB)", 
+                    statusText.setText(String.format("完成！%.1f 秒音频（%.0f KB）", 
                             durationSec, lastWav.length / 1024.0));
                     btnPlay.setEnabled(true);
                     btnSave.setEnabled(true);
@@ -330,8 +330,8 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     setBusy(false);
-                    statusText.setText("Error: " + e.getMessage());
-                    Toast.makeText(this, "Inference error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    statusText.setText("出错：" + e.getMessage());
+                    Toast.makeText(this, "推理失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
                 });
             }
         }).start();
@@ -365,7 +365,7 @@ public class MainActivity extends AppCompatActivity {
             track.play();
             track.release(); // one-shot play
         } catch (Exception e) {
-            statusText.setText("Play error: " + e.getMessage());
+            statusText.setText("播放失败：" + e.getMessage());
         }
     }
 
@@ -396,26 +396,26 @@ public class MainActivity extends AppCompatActivity {
             try (FileOutputStream fos = new FileOutputStream(file)) {
                 fos.write(lastWav);
             }
-            statusText.setText("Saved: " + name);
-            Toast.makeText(this, "Saved to Downloads/" + name, Toast.LENGTH_SHORT).show();
+            statusText.setText("已保存：" + name);
+            Toast.makeText(this, "已保存到 Downloads/" + name, Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
-            statusText.setText("Save failed: " + e.getMessage());
+            statusText.setText("保存失败：" + e.getMessage());
         }
     }
 
     private void showParamsHelp() {
         AlertDialog.Builder b = new AlertDialog.Builder(this);
-        b.setTitle("How to use");
+        b.setTitle("使用说明");
         b.setMessage(
-                "1. Tap 'Select ONNX Model' and pick a .onnx file\n" +
-                "2. The app shows its input/output tensor info\n" +
-                "3. Fill tensor values as comma-separated numbers\n" +
-                "4. Or type text (auto-encoded as char int64 codes)\n" +
-                "5. Tap Generate → Play → Save\n\n" +
-                "Tip: For GPT-SoVITS models, see the model README\n" +
-                "for expected input tensor order and values."
+                "1. 点击「选择 ONNX 模型」选取 .onnx 文件\n" +
+                "2. 应用会显示模型的输入输出张量信息\n" +
+                "3. 为每个输入填入逗号分隔的数值\n" +
+                "4. 或直接输入文本（自动转为字符编码）\n" +
+                "5. 点击生成 → 播放 → 保存\n\n" +
+                "提示：使用 GPT-SoVITS 模型时，请参考模型文档\n" +
+                "获取正确的输入张量顺序和取值范围。"
         );
-        b.setPositiveButton("OK", null);
+        b.setPositiveButton("确定", null);
         b.show();
     }
 
