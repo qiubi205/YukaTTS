@@ -77,19 +77,18 @@ public class MainActivity extends AppCompatActivity {
             });
 
     private final ActivityResultLauncher<String> storagePerm =
+            registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
+                if (granted) saveAudio();
+                else Toast.makeText(this, "需要存储权限", Toast.LENGTH_SHORT).show();
+            });
 
     private final ActivityResultLauncher<String> refAudioPicker =
             registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
                 if (uri != null) {
                     refAudioUri = uri;
                     refAudioName.setText("已选择：" + getFileNameFromUri(uri));
-                    // Copy to cache for processing
                     copyRefAudioToCache(uri);
                 }
-            });
-            registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
-                if (granted) saveAudio();
-                else Toast.makeText(this, "需要存储权限", Toast.LENGTH_SHORT).show();
             });
 
     @Override
