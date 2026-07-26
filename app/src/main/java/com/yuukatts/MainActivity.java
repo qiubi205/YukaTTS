@@ -28,6 +28,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import android.util.Log;
 import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
@@ -421,10 +422,4 @@ public class MainActivity extends AppCompatActivity {
         if (engine != null) engine.close();
     }
 
-    // Log
-    private static class Log {
-        static void i(String tag, String msg) { android.util.Log.i(tag, msg); }
-        static void w(String tag, String msg) { android.util.Log.w(tag, msg); }
-        static void e(String tag, String msg, Throwable tr) { android.util.Log.e(tag, msg, tr); }
-    }
 }
