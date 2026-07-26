@@ -321,8 +321,7 @@ public class MainActivity extends AppCompatActivity {
                 });
             } catch (Exception e) {
                 Log.e("YuukaTTS", "加载失败", e);
-                String errMsg = e.getMessage();
-                if (errMsg == null) errMsg = e.getClass().getSimpleName();
+                final String errMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
 
                 runOnUiThread(() -> {
                     setBusy(false);
@@ -359,13 +358,13 @@ public class MainActivity extends AppCompatActivity {
         int topK = getTopKParam();
         float temp = getTempParam();
         String refAudio = refAudioPath;
-        String refText = refTextInput.getText().toString().trim();
-        if (refText.isEmpty()) refText = null;
+        final String refText = refTextInput.getText().toString().trim();
+        final String refTextFinal = refText.isEmpty() ? null : refText;
 
         new Thread(() -> {
             try {
                 long t0 = System.currentTimeMillis();
-                float[] audio = engine.synthesize(text, refAudio, refText, speed, topK, temp);
+                float[] audio = engine.synthesize(text, refAudio, refTextFinal, speed, topK, temp);
                 long elapsed = System.currentTimeMillis() - t0;
 
                 lastWav = engine.audioToWav(audio);
