@@ -57,7 +57,7 @@ public class MainActivity extends AppCompatActivity {
 
     // 模型三文件选择
     private String bertPath, sslPath, gptPath;
-    private String pendingModelType = null; // "bert" | "ssl" | "gpt"
+    private String pendingModelType = null;
 
     private final ActivityResultLauncher<String> storagePerm =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
@@ -74,15 +74,11 @@ public class MainActivity extends AppCompatActivity {
                 }
             });
 
-    // 模型文件选择器（用 */* 通配，Android 文件管理器过滤）
-    private final ActivityResultLauncher<String> modelFilePicker = createModelFilePicker();
-
-    private ActivityResultLauncher<String> createModelFilePicker() {
-        return registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
-            if (uri == null || pendingModelType == null) return;
-            copyModelFile(uri, pendingModelType);
-        });
-    }
+    private final ActivityResultLauncher<String> modelFilePicker =
+            registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
+                if (uri == null || pendingModelType == null) return;
+                copyModelFile(uri, pendingModelType);
+            });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -109,6 +105,9 @@ public class MainActivity extends AppCompatActivity {
         speedValue = findViewById(R.id.speed_value);
         topkValue = findViewById(R.id.topk_value);
         tempValue = findViewById(R.id.temp_value);
+
+        // 设置 textInput 提示
+        textInput.setHint("输入日文文本…（例：こんにちは）");
 
         // ── 加载模型 ──
         btnLoadModel.setOnClickListener(v -> {
@@ -184,20 +183,26 @@ public class MainActivity extends AppCompatActivity {
         String sslLabel  = sslPath  != null ? "✅ SSL: "  + getShortName(sslPath)  : "❌ 未选择 SSL 模型";
         String gptLabel  = gptPath  != null ? "✅ GPT-SoVITS: " + getShortName(gptPath) : "❌ 未选择 GPT-SoVITS 模型";
 
+        String msg = "请依次选择三个 TorchScript 模型文件：\n\n"
+                + bertLabel + "\n" + sslLabel + "\n" + gptLabel + "\n\n"
+                + "文件名应为: bert_model_cpu.pt / ssl_model_cpu.pt / gpt_sovits_model_cpu.pt\n"
+                + "vocab.txt 可从 assets 加载，无需手动选择。\n\n"
+                + "全选后点击底部按钮确认加载。";
+
         new androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle("选择模型文件")
-                .setMessage("请依次选择三个 TorchScript 模型文件：\n\n" + bertLabel + "\n" + sslLabel + "\n" + gptLabel + "\n\n选择全部三个后点击加载")
+                .setMessage(msg)
                 .setPositiveButton("选择 BERT 模型", (d, w) -> {
                     pendingModelType = "bert";
-                    modelFilePicker.launch("application/*");
+                    modelFilePicker.launch("*/*");
                 })
                 .setNeutralButton("选择 SSL 模型", (d, w) -> {
                     pendingModelType = "ssl";
-                    modelFilePicker.launch("application/*");
+                    modelFilePicker.launch("*/*");
                 })
                 .setNegativeButton("选择 GPT-SoVITS", (d, w) -> {
                     pendingModelType = "gpt";
-                    modelFilePicker.launch("application/*");
+                    modelFilePicker.launch("*/*");
                 })
                 .show();
     }
@@ -210,7 +215,11 @@ public class MainActivity extends AppCompatActivity {
         }
         new androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle("确认加载")
-                .setMessage("BERT: " + getShortName(bertPath) + "\nSSL: " + getShortName(sslPath) + "\nGPT-SoVITS: " + getShortName(gptPath) + "\n\n开始加载？")
+                .setMessage("BERT: " + getShortName(bertPath)
+                        + "\nSSL: " + getShortName(sslPath)
+                        + "\nGPT-SoVITS: " + getShortName(gptPath)
+                        + "\n\nvocab.txt 从内置 assets 加载"
+                        + "\n\n开始加载？（模型很大，需要时间）")
                 .setPositiveButton("加载", (d, w) -> loadSelectedModels())
                 .setNegativeButton("重新选择", (d, w) -> showModelPickerDialog())
                 .show();
@@ -222,9 +231,9 @@ public class MainActivity extends AppCompatActivity {
 
         String destName;
         switch (type) {
-            case "bert": destName = "bert_model.pt"; break;
-            case "ssl":  destName = "ssl_model.pt"; break;
-            case "gpt":  destName = "gpt_sovits_model.pt"; break;
+            case "bert": destName = "bert_model_cpu.pt"; break;
+            case "ssl":  destName = "ssl_model_cpu.pt"; break;
+            case "gpt":  destName = "gpt_sovits_model_cpu.pt"; break;
             default:     destName = "model.pt";
         }
 
@@ -241,7 +250,6 @@ public class MainActivity extends AppCompatActivity {
                     while ((n = is.read(buf)) > 0) fos.write(buf, 0, n);
                 }
 
-                // 验证文件不是空的 + 大小合理
                 long fsize = destFile.length();
                 if (fsize < 1024) {
                     runOnUiThread(() -> {
@@ -262,7 +270,6 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     setBusy(false);
                     statusText.setText(getModelStatusText());
-                    // 全选完后自动弹出确认加载
                     if (bertPath != null && sslPath != null && gptPath != null) {
                         showLoadNowDialog();
                     } else {
@@ -300,25 +307,34 @@ public class MainActivity extends AppCompatActivity {
 
     private synchronized void loadSelectedModels() {
         setBusy(true);
-        statusText.setText("正在加载模型…");
+        statusText.setText("正在加载模型（可能需要 1-2 分钟）…");
 
         new Thread(() -> {
             try {
-                engine.loadModels(new File(bertPath).getParent());
+                engine.loadModels(new File(bertPath).getParent(), getAssets());
                 runOnUiThread(() -> {
                     setBusy(false);
-                    statusText.setText("✅ 模型加载完成！");
+                    statusText.setText("✅ 模型加载完成！共 "
+                            + engine.getTokenizer().getVocabSize() + " tokens");
                     btnLoadModel.setEnabled(false);
-                    Toast.makeText(this, "模型已就绪", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "模型已就绪，可以输入文本了", Toast.LENGTH_SHORT).show();
                 });
             } catch (Exception e) {
                 Log.e("YuukaTTS", "加载失败", e);
+                String errMsg = e.getMessage();
+                if (errMsg == null) errMsg = e.getClass().getSimpleName();
+
                 runOnUiThread(() -> {
                     setBusy(false);
-                    statusText.setText("❌ 加载失败：" + e.getMessage());
+                    statusText.setText("❌ 加载失败：" + errMsg);
                     new androidx.appcompat.app.AlertDialog.Builder(this)
                             .setTitle("模型加载失败")
-                            .setMessage("错误信息：" + e.getMessage() + "\n\n请确认选择的文件是正确的 TorchScript 模型（.pt 文件）。\n\n需要三个文件：\n• bert_model.pt\n• ssl_model.pt\n• gpt_sovits_model.pt")
+                            .setMessage("错误：" + errMsg
+                                    + "\n\n请确认：\n"
+                                    + "1. 文件是 CPU 版 TorchScript（非 CUDA）\n"
+                                    + "2. 文件名包含 _cpu 后缀\n"
+                                    + "3. 三个文件完整未损坏\n"
+                                    + "4. 手机内存充足（需 ~4GB 空闲）")
                             .setPositiveButton("重新选择", (d, w) -> {
                                 bertPath = sslPath = gptPath = null;
                                 showModelPickerDialog();
@@ -344,19 +360,22 @@ public class MainActivity extends AppCompatActivity {
         float temp = getTempParam();
         String refAudio = refAudioPath;
         String refText = refTextInput.getText().toString().trim();
+        if (refText.isEmpty()) refText = null;
 
         new Thread(() -> {
             try {
-                float[] audio;
-                audio = engine.synthesize(text, refAudio, refText, speed, topK, temp);
+                long t0 = System.currentTimeMillis();
+                float[] audio = engine.synthesize(text, refAudio, refText, speed, topK, temp);
+                long elapsed = System.currentTimeMillis() - t0;
+
                 lastWav = engine.audioToWav(audio);
 
                 float dur = audio.length / (float) engine.getSampleRate();
                 runOnUiThread(() -> {
                     generating = false;
                     setBusy(false);
-                    statusText.setText(String.format("✅ 完成！%.1f 秒音频（%.0f KB）",
-                            dur, lastWav.length / 1024f));
+                    statusText.setText(String.format("✅ 完成！%.1f 秒音频 (%.0f KB) | 耗时 %.1f 秒",
+                            dur, lastWav.length / 1024f, elapsed / 1000f));
                     btnPlay.setEnabled(true);
                     btnSave.setEnabled(true);
                     playAudio(lastWav);
@@ -465,7 +484,7 @@ public class MainActivity extends AppCompatActivity {
                     while ((n = is.read(buf)) > 0) fos.write(buf, 0, n);
                 }
                 refAudioPath = cacheFile.getAbsolutePath();
-                Log.i("YuukaTTS", "参考音频已缓存: " + refAudioPath);
+                Log.i("YuukaTTS", "参考音频已缓存: " + refAudioPath + " (" + cacheFile.length() + " bytes)");
             } catch (Exception e) {
                 runOnUiThread(() ->
                         Toast.makeText(this, "加载参考音频失败", Toast.LENGTH_SHORT).show());
@@ -491,7 +510,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                     refAudioPath = cacheFile.getAbsolutePath();
                     refAudioName.setText("默认参考音频");
-                    Log.i("YuukaTTS", "默认参考音频: " + refAudioPath);
+                    Log.i("YuukaTTS", "默认参考音频: " + refAudioPath + " (" + cacheFile.length() + " bytes)");
                     return;
                 }
             }

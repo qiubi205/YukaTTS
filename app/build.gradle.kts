@@ -10,8 +10,8 @@ android {
         applicationId = "com.yuukatts"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     compileOptions {
@@ -30,11 +30,18 @@ android {
         jniLibs {
             useLegacyPackaging = true
         }
+        // 排除冲突的 lib/arch 重复 so
+        resources {
+            excludes += setOf(
+                "META-INF/LICENSE.md",
+                "META-INF/NOTICE.md"
+            )
+        }
     }
 }
 
 dependencies {
-    // PyTorch Android 完整版（支持标准 TorchScript 格式，含 bytecode）
+    // PyTorch Android 完整版（标准 TorchScript 格式，含 code/ 和 constants/）
     implementation("org.pytorch:pytorch_android:2.1.0")
     implementation("org.pytorch:pytorch_android_torchvision:2.1.0")
 
