@@ -42,8 +42,8 @@ android {
 
 dependencies {
     // PyTorch Android 完整版（标准 TorchScript 格式，含 code/ 和 constants/）
-    implementation("org.pytorch:pytorch_android:2.1.0")
-    implementation("org.pytorch:pytorch_android_torchvision:2.1.0")
+    implementation("org.pytorch:pytorch_android:2.3.1")
+    implementation("org.pytorch:pytorch_android_torchvision:2.3.1")
 
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
