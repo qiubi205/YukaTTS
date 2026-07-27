@@ -289,13 +289,8 @@ public class TTSEngine {
             System.setProperty("org.pytorch.backend.nnpack", "disabled");
         } catch (Exception ignored) {}
         try {
-            String lower = path.toLowerCase();
-            if (lower.endsWith(".ptl")) {
-                // Lite 模型 — 绕过 NNPack
-                return LiteModuleLoader.load(path);
-            } else {
-                return Module.load(path);
-            }
+            // 全部用 LiteModuleLoader — 绕过 NNPack
+            return LiteModuleLoader.load(path);
         } catch (OutOfMemoryError e) {
             throw new RuntimeException("内存不足加载 " + name + " (" 
                     + (new File(path).length() / 1048576) + " MB)\n"
