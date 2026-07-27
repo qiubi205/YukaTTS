@@ -10,8 +10,8 @@ android {
         applicationId = "com.yuukatts"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.3.0"
     }
 
     compileOptions {
@@ -42,7 +42,7 @@ android {
 
 dependencies {
     // PyTorch Android 标准版 — 支持自定义 TorchScript 类型
-    implementation("org.pytorch:pytorch_android:2.1.0")
+    implementation("org.pytorch:pytorch_android_lite:2.1.0")
 
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")

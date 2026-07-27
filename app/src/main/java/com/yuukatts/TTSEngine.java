@@ -101,7 +101,7 @@ public class TTSEngine {
     }
 
     private File findModelFile(File dir, String prefix) {
-        String[] suffixes = {"_cpu_v4.pt", "_cpu.pt", ".pt"};
+        String[] suffixes = {"_cpu_v4.ptl", "_cpu.ptl", ".ptl", "_cpu_v4.pt", "_cpu.pt", ".pt"};
         for (String suf : suffixes) {
             File f = new File(dir, prefix + suf);
             if (f.exists() && f.length() > 1024) return f;
