@@ -94,27 +94,21 @@ public class MainActivity extends AppCompatActivity {
 
         setContentView(R.layout.activity_main);
 
-        // 测试 PyTorch Lite
-        try {
-            CrashLogger.write("onCreate", "检查 PyTorch Lite...");
-            Class.forName("org.pytorch.Module");
+        // PyTorch Lite 检测放到后台，避免主线程 loadLibrary 导致 ANR
+        CrashLogger.write("onCreate", "PyTorch 后台检测...");
+        new Thread(() -> {
             try {
+                Class.forName("org.pytorch.LiteModuleLoader");
                 System.loadLibrary("pytorch_jni_lite");
-                CrashLogger.write("onCreate", "libpytorch_jni_lite OK");
-            } catch (UnsatisfiedLinkError e) {
-                try {
-                    System.loadLibrary("pytorch_jni");
-                    CrashLogger.write("onCreate", "降级 libpytorch_jni");
-                } catch (UnsatisfiedLinkError e2) {
-                    CrashLogger.write("onCreate", "FATAL: 无 native 库");
-                }
+                CrashLogger.write("init", "libpytorch_jni_lite OK");
+            } catch (Exception e) {
+                CrashLogger.write("init", "PyTorch Lite 不可用: " + e.getMessage());
             }
-        } catch (Exception e) {
-            CrashLogger.write("onCreate", "PyTorch 不可用: " + e.getMessage());
-        }
+        }, "pytorch-init").start();
 
         engine = new TTSEngine();
         CrashLogger.write("onCreate", "TTSEngine 创建完成");
+        Log.i("YuukaTTS", "onCreate 完成，UI 就绪");
 
         btnLoadModel = findViewById(R.id.btn_load_model);
         statusText = findViewById(R.id.status_text);
