@@ -183,13 +183,14 @@ public class TTSEngine {
         long[] typeIds = new long[seqLen];
         long[] word2ph = new long[seqLen];
         Arrays.fill(attnMask, 1L);
-        // word2ph 暂时全 1（每个 token 对应一个 phone，后续可从文本分析获取）
+        // word2ph: 每个 BERT token 对应几个 phone（1D，不 2D）
+        // word2ph[i] = phone 数量；简单情景每个 token 对应 1 个 phone
         Arrays.fill(word2ph, 1L);
 
         Tensor inputIds = Tensor.fromBlob(targetIdsLong, new long[]{1, seqLen});
         Tensor attnMaskT = Tensor.fromBlob(attnMask, new long[]{1, seqLen});
         Tensor typeIdsT = Tensor.fromBlob(typeIds, new long[]{1, seqLen});
-        Tensor word2phT = Tensor.fromBlob(word2ph, new long[]{1, seqLen});
+        Tensor word2phT = Tensor.fromBlob(word2ph, new long[]{seqLen});  // 1D!
 
         IValue bertResult = bertModel.forward(
                 IValue.from(inputIds),
@@ -211,7 +212,7 @@ public class TTSEngine {
         Tensor refInputIds = Tensor.fromBlob(refIdsLong, new long[]{1, refLen});
         Tensor refAttnMaskT = Tensor.fromBlob(refAttnMask, new long[]{1, refLen});
         Tensor refTypeIdsT = Tensor.fromBlob(refTypeIds, new long[]{1, refLen});
-        Tensor refWord2phT = Tensor.fromBlob(refWord2ph, new long[]{1, refLen});
+        Tensor refWord2phT = Tensor.fromBlob(refWord2ph, new long[]{refLen});  // 1D tensor!
 
         IValue refBertResult = bertModel.forward(
                 IValue.from(refInputIds),
