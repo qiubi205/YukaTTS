@@ -6,6 +6,7 @@ import android.util.Log;
 import com.yuukatts.tokenizer.WordPieceTokenizer;
 
 import org.pytorch.IValue;
+import org.pytorch.LiteModuleLoader;
 import org.pytorch.Module;
 import org.pytorch.Tensor;
 
@@ -288,7 +289,13 @@ public class TTSEngine {
             System.setProperty("org.pytorch.backend.nnpack", "disabled");
         } catch (Exception ignored) {}
         try {
-            return Module.load(path);
+            String lower = path.toLowerCase();
+            if (lower.endsWith(".ptl")) {
+                // Lite 模型 — 绕过 NNPack
+                return LiteModuleLoader.load(path);
+            } else {
+                return Module.load(path);
+            }
         } catch (OutOfMemoryError e) {
             throw new RuntimeException("内存不足加载 " + name + " (" 
                     + (new File(path).length() / 1048576) + " MB)\n"
