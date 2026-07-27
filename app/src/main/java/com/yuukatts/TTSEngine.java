@@ -66,6 +66,12 @@ public class TTSEngine {
     public void loadModels(String dirPath, AssetManager assets) throws Exception {
         if (loaded) close();
 
+        Runtime rt = Runtime.getRuntime();
+        Log.i(TAG, "━━━ 开始加载模型 ━━━");
+        Log.i(TAG, "可用内存: max=" + (rt.maxMemory() / 1048576) + "MB, "
+                + "total=" + (rt.totalMemory() / 1048576) + "MB, "
+                + "free=" + (rt.freeMemory() / 1048576) + "MB");
+
         File dir = new File(dirPath);
 
         // 自动匹配文件名（兼容 _cpu 后缀或不带后缀）
@@ -107,16 +113,36 @@ public class TTSEngine {
         } catch (Exception ignored) {}
 
         Log.i(TAG, "加载 BERT: " + bertFile.getName() + " (" + (bertFile.length() / 1048576) + " MB)");
-        bertModel = Module.load(bertFile.getAbsolutePath());
+        try {
+            bertModel = Module.load(bertFile.getAbsolutePath());
+        } catch (OutOfMemoryError e) {
+            throw new RuntimeException("内存不足：BERT 模型 (" + (bertFile.length() / 1048576) + " MB) 超出可用内存");
+        }
+        Log.i(TAG, "BERT 加载后内存: free=" + (rt.freeMemory() / 1048576) + "MB");
 
         Log.i(TAG, "加载 SSL: " + sslFile.getName() + " (" + (sslFile.length() / 1048576) + " MB)");
-        sslModel = Module.load(sslFile.getAbsolutePath());
+        try {
+            sslModel = Module.load(sslFile.getAbsolutePath());
+        } catch (OutOfMemoryError e) {
+            throw new RuntimeException("内存不足：SSL 模型 (" + (sslFile.length() / 1048576) + " MB) 超出可用内存");
+        }
+        Log.i(TAG, "SSL 加载后内存: free=" + (rt.freeMemory() / 1048576) + "MB");
 
         Log.i(TAG, "加载 GPT-SoVITS: " + gptFile.getName() + " (" + (gptFile.length() / 1048576) + " MB)");
-        gptSovitsModel = Module.load(gptFile.getAbsolutePath());
+        Log.i(TAG, "加载前内存: free=" + (rt.freeMemory() / 1048576) + "MB, total=" + (rt.totalMemory() / 1048576) + "MB");
+        System.gc();
+        Log.i(TAG, "GC 后内存: free=" + (rt.freeMemory() / 1048576) + "MB, total=" + (rt.totalMemory() / 1048576) + "MB");
+        
+        try {
+            gptSovitsModel = Module.load(gptFile.getAbsolutePath());
+        } catch (OutOfMemoryError e) {
+            Log.e(TAG, "GPT-SoVITS OOM! 文件: " + (gptFile.length() / 1048576) + "MB");
+            throw new RuntimeException("内存不足：GPT-SoVITS 模型 (" + (gptFile.length() / 1048576) + " MB) 超出可用内存");
+        }
 
         loaded = true;
         Log.i(TAG, "✅ 三个模型 + tokenizer 加载完成");
+        Log.i(TAG, "加载后内存: free=" + (rt.freeMemory() / 1048576) + "MB, total=" + (rt.totalMemory() / 1048576) + "MB");
     }
 
     private File findModelFile(File dir, String prefix) {

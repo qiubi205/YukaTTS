@@ -8,6 +8,7 @@ import android.media.AudioTrack;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Debug;
 import android.os.Environment;
 import android.util.Log;
 import android.view.View;
@@ -26,6 +27,8 @@ import androidx.core.content.ContextCompat;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -40,6 +43,7 @@ public class MainActivity extends AppCompatActivity {
     private Button btnPlay;
     private Button btnSave;
     private EditText textInput;
+    private File crashLogFile;
 
     // 参考音频
     private Button btnRefAudio, btnRefDefault;
@@ -83,12 +87,52 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // ── 全局崩溃日志（必须在 setContentView 之前初始化）──
+        crashLogFile = new File(getExternalFilesDir(null), "crash_log.txt");
+        CrashLogger.init(crashLogFile);
+
+        CrashLogger.write("onCreate", "APP 启动 v1.1.0");
+        CrashLogger.write("onCreate", "ABI=" + android.os.Build.CPU_ABI + "/" + android.os.Build.CPU_ABI2);
+        CrashLogger.write("onCreate", "Model=" + android.os.Build.MODEL + " SDK=" + android.os.Build.VERSION.SDK_INT);
+
         setContentView(R.layout.activity_main);
+
+        CrashLogger.write("onCreate", "setContentView OK");
+
+        // 测试 PyTorch Lite 是否可用
+        try {
+            CrashLogger.write("onCreate", "测试 PyTorch Lite 库...");
+            Class.forName("org.pytorch.Module");
+            CrashLogger.write("onCreate", "PyTorch Module class OK");
+
+            // 尝试加载 native library
+            try {
+                System.loadLibrary("pytorch_jni_lite");
+                CrashLogger.write("onCreate", "Native libpytorch_jni_lite 加载成功");
+            } catch (UnsatisfiedLinkError e) {
+                CrashLogger.write("onCreate", "ERROR: libpytorch_jni_lite 不存在，尝试 libpytorch_jni");
+                try {
+                    System.loadLibrary("pytorch_jni");
+                    CrashLogger.write("onCreate", "降级使用 libpytorch_jni");
+                } catch (UnsatisfiedLinkError e2) {
+                    CrashLogger.write("onCreate", "FATAL: 两个 native library 都不存在！");
+                    throw e2;
+                }
+            }
+        } catch (Exception e) {
+            CrashLogger.write("onCreate", "PyTorch Lite 不可用: " + e.getMessage());
+            Log.e("YuukaTTS", "PyTorch Lite test failed", e);
+        }
 
         engine = new TTSEngine();
 
+        CrashLogger.write("onCreate", "TTSEngine 创建完成，内存: free="
+                + (Runtime.getRuntime().freeMemory() / 1048576) + "MB");
+
         btnLoadModel = findViewById(R.id.btn_load_model);
         statusText = findViewById(R.id.status_text);
+        statusText.setText("日志: " + crashLogFile.getAbsolutePath());
         progressBar = findViewById(R.id.progress_bar);
         btnGenerate = findViewById(R.id.btn_generate);
         btnPlay = findViewById(R.id.btn_play);
