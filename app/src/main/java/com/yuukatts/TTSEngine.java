@@ -101,6 +101,11 @@ public class TTSEngine {
         }
 
         // ── 加载模型 ──
+        // Android 部分设备 NNPack Conv1d 有兼容性问题，禁用 NNPack 回退到默认 CPU 后端
+        try {
+            System.setProperty("org.pytorch.backend.nnpack.enabled", "false");
+        } catch (Exception ignored) {}
+
         Log.i(TAG, "加载 BERT: " + bertFile.getName() + " (" + (bertFile.length() / 1048576) + " MB)");
         bertModel = Module.load(bertFile.getAbsolutePath());
 
