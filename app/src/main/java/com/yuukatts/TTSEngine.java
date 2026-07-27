@@ -110,7 +110,8 @@ public class TTSEngine {
         File[] files = dir.listFiles();
         if (files != null) {
             for (File f : files) {
-                if (f.getName().startsWith(prefix) && f.getName().endsWith(".pt") && f.length() > 1024) {
+                String n = f.getName();
+                if (n.startsWith(prefix) && (n.endsWith(".pt") || n.endsWith(".ptl")) && f.length() > 1024) {
                     return f;
                 }
             }
