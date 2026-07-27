@@ -179,9 +179,11 @@ public class TTSEngine {
 
         // ── Step 1: BERT → text_bert ──
         int seqLen = targetTokenIds.length;
+        int phoneLen = seqLen - 2;  // BERT slices [1:-1], so word2ph = seqLen-2
+        if (phoneLen < 1) phoneLen = 1;
         long[] attnMask = new long[seqLen];
         long[] typeIds = new long[seqLen];
-        long[] word2ph = new long[seqLen];
+        long[] word2ph = new long[phoneLen];
         Arrays.fill(attnMask, 1L);
         // word2ph: 每个 BERT token 对应几个 phone（1D，不 2D）
         // word2ph[i] = phone 数量；简单情景每个 token 对应 1 个 phone
@@ -190,7 +192,7 @@ public class TTSEngine {
         Tensor inputIds = Tensor.fromBlob(targetIdsLong, new long[]{1, seqLen});
         Tensor attnMaskT = Tensor.fromBlob(attnMask, new long[]{1, seqLen});
         Tensor typeIdsT = Tensor.fromBlob(typeIds, new long[]{1, seqLen});
-        Tensor word2phT = Tensor.fromBlob(word2ph, new long[]{seqLen});  // 1D!
+        Tensor word2phT = Tensor.fromBlob(word2ph, new long[]{phoneLen});  // 1D, phoneLen
 
         IValue bertResult = bertModel.forward(
                 IValue.from(inputIds),
@@ -203,16 +205,18 @@ public class TTSEngine {
 
         // ── Step 1b: BERT → ref_bert ──
         int refLen = refTokenIds.length;
+        int refPhoneLen = refLen - 2;
+        if (refPhoneLen < 1) refPhoneLen = 1;
         long[] refAttnMask = new long[refLen];
         long[] refTypeIds = new long[refLen];
-        long[] refWord2ph = new long[refLen];
+        long[] refWord2ph = new long[refPhoneLen];
         Arrays.fill(refAttnMask, 1L);
         Arrays.fill(refWord2ph, 1L);
 
         Tensor refInputIds = Tensor.fromBlob(refIdsLong, new long[]{1, refLen});
         Tensor refAttnMaskT = Tensor.fromBlob(refAttnMask, new long[]{1, refLen});
         Tensor refTypeIdsT = Tensor.fromBlob(refTypeIds, new long[]{1, refLen});
-        Tensor refWord2phT = Tensor.fromBlob(refWord2ph, new long[]{refLen});  // 1D tensor!
+        Tensor refWord2phT = Tensor.fromBlob(refWord2ph, new long[]{refPhoneLen});  // 1D tensor
 
         IValue refBertResult = bertModel.forward(
                 IValue.from(refInputIds),
