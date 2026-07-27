@@ -6,6 +6,7 @@ import android.util.Log;
 import com.yuukatts.tokenizer.WordPieceTokenizer;
 
 import org.pytorch.IValue;
+import org.pytorch.LiteModuleLoader;
 import org.pytorch.Module;
 import org.pytorch.Tensor;
 
@@ -284,7 +285,7 @@ public class TTSEngine {
                 + " (free=" + (rt.freeMemory() / 1048576) + "MB)");
         System.gc();
         try {
-            return Module.load(path);
+            return LiteModuleLoader.load(path);
         } catch (OutOfMemoryError e) {
             throw new RuntimeException("内存不足加载 " + name + " (" 
                     + (new File(path).length() / 1048576) + " MB)\n"
