@@ -41,7 +41,8 @@ android {
 }
 
 dependencies {
-    // PyTorch Android 标准版 — 支持自定义 TorchScript 类型
+    // 标准版用于 .pt 模型加载, Lite 版用于 .ptl (绕过 NNPack)
+    implementation("org.pytorch:pytorch_android:2.1.0")
     implementation("org.pytorch:pytorch_android_lite:2.1.0")
 
     implementation("androidx.appcompat:appcompat:1.6.1")
