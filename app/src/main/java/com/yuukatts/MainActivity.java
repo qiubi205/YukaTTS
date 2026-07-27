@@ -88,7 +88,7 @@ public class MainActivity extends AppCompatActivity {
         // ── 全局崩溃日志 ──
         crashLogFile = new File(getExternalFilesDir(null), "crash_log.txt");
         CrashLogger.init(crashLogFile);
-        CrashLogger.write("onCreate", "APP v1.2.0 (serial load)");
+        CrashLogger.write("onCreate", "APP v1.3.0 (Lite)");
         CrashLogger.write("onCreate", "ABI=" + Build.CPU_ABI + "/" + Build.CPU_ABI2);
         CrashLogger.write("onCreate", "Model=" + Build.MODEL + " SDK=" + Build.VERSION.SDK_INT);
 
