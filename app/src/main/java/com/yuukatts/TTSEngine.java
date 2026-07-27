@@ -16,39 +16,39 @@ import java.io.InputStream;
 import java.util.Arrays;
 
 /**
- * YuukaTTS 引擎 —— PyTorch Mobile 版本。
+ * YuukaTTS 引擎 —— PyTorch Mobile（Lite）版。
  *
- * 三个 TorchScript 模型（CPU 版），forward 签名从模型内部提取：
+ * 内存优化策略：串行加载，同一时刻内存中最多只有一个大模型。
+ * 顺序：BERT forward → destroy → SSL forward → destroy → GPT-SoVITS forward → destroy
  *
+ * 三个 TorchScript 模型（CPU 版）：
  *   BERT:  forward(input_ids, attention_mask, token_type_ids, word2ph) → Tensor
  *   SSL:   forward(ref_audio) → Tensor
  *   GPT:   forward(ssl_content, ref_audio_sr, ref_seq, text_seq, ref_bert, text_bert, top_k) → Tensor
- *
- * 其中 GPT-SoVITS 内部已包含参考音频重采样（32000→16000）、SV 说话人特征提取、
- * T2S 语义 token 生成 和 VITS 声码器，一个 forward 输出最终波形。
  */
 public class TTSEngine {
 
     private static final String TAG = "YuukaTTS";
 
-    private Module bertModel;
-    private Module sslModel;
-    private Module gptSovitsModel;
+    // 模型文件路径（加载 → forward → 销毁，不持有 Module 引用）
+    private String bertPath;
+    private String sslPath;
+    private String gptSovitsPath;
 
     private WordPieceTokenizer tokenizer;
 
-    private boolean loaded = false;
-    private int sampleRate = 32000; // GPT-SoVITS 输出 32kHz
+    private boolean ready = false;  // 模型路径 + tokenizer 就绪
+    private int sampleRate = 32000;
     private int sslSampleRate = 16000;
-    private int refSrcSampleRate = 16000;  // 上次加载参考音频的原始采样率
-    private int maxTextLen = 200; // 最大文本长度
+    private int refSrcSampleRate = 16000;
+    private int maxTextLen = 200;
 
     // 推理参数
     private float speedParam = 1.0f;
     private int topKParam = 15;
     private float tempParam = 0.8f;
 
-    public boolean isLoaded() { return loaded; }
+    public boolean isReady() { return ready; }
     public int getSampleRate() { return sampleRate; }
     public float getSpeedParam() { return speedParam; }
     public int getTopKParam() { return topKParam; }
@@ -56,25 +56,12 @@ public class TTSEngine {
     public WordPieceTokenizer getTokenizer() { return tokenizer; }
 
     /**
-     * 从指定目录加载三个模型文件和 vocab.txt。
-     * 目录下应有:
-     *   bert_model_cpu.pt (或 bert_model.pt)
-     *   ssl_model_cpu.pt (或 ssl_model.pt)
-     *   gpt_sovits_model_cpu.pt (或 gpt_sovits_model.pt)
-     *   vocab.txt
+     * 初始化：只记录模型路径 + 加载 tokenizer。
+     * 不加载任何 PyTorch 模型到内存。
      */
-    public void loadModels(String dirPath, AssetManager assets) throws Exception {
-        if (loaded) close();
-
-        Runtime rt = Runtime.getRuntime();
-        Log.i(TAG, "━━━ 开始加载模型 ━━━");
-        Log.i(TAG, "可用内存: max=" + (rt.maxMemory() / 1048576) + "MB, "
-                + "total=" + (rt.totalMemory() / 1048576) + "MB, "
-                + "free=" + (rt.freeMemory() / 1048576) + "MB");
-
+    public void init(String dirPath, AssetManager assets) throws Exception {
         File dir = new File(dirPath);
 
-        // 自动匹配文件名（兼容 _cpu 后缀或不带后缀）
         File bertFile = findModelFile(dir, "bert_model");
         File sslFile = findModelFile(dir, "ssl_model");
         File gptFile = findModelFile(dir, "gpt_sovits_model");
@@ -83,9 +70,17 @@ public class TTSEngine {
         if (sslFile == null) throw new RuntimeException("缺少 ssl_model*.pt");
         if (gptFile == null) throw new RuntimeException("缺少 gpt_sovits_model*.pt");
 
+        bertPath = bertFile.getAbsolutePath();
+        sslPath = sslFile.getAbsolutePath();
+        gptSovitsPath = gptFile.getAbsolutePath();
+
+        Log.i(TAG, "模型路径确认:");
+        Log.i(TAG, "  BERT: " + bertPath + " (" + (bertFile.length() / 1048576) + " MB)");
+        Log.i(TAG, "  SSL:  " + sslPath + " (" + (sslFile.length() / 1048576) + " MB)");
+        Log.i(TAG, "  GPT:  " + gptSovitsPath + " (" + (gptFile.length() / 1048576) + " MB)");
+
         // ── 加载 tokenizer ──
         tokenizer = new WordPieceTokenizer();
-        // 先尝试从模型目录加载 vocab.txt
         File vocabFile = new File(dir, "vocab.txt");
         if (vocabFile.exists()) {
             try (FileInputStream fis = new FileInputStream(vocabFile)) {
@@ -93,66 +88,24 @@ public class TTSEngine {
                 Log.i(TAG, "从模型目录加载 vocab.txt: " + tokenizer.getVocabSize() + " tokens");
             }
         } else if (assets != null) {
-            // 从 assets 加载
-            try {
-                InputStream is = assets.open("vocab.txt");
+            try (InputStream is = assets.open("vocab.txt")) {
                 tokenizer.loadVocab(is);
-                is.close();
                 Log.i(TAG, "从 assets 加载 vocab.txt: " + tokenizer.getVocabSize() + " tokens");
-            } catch (IOException e) {
-                throw new RuntimeException("找不到 vocab.txt（模型目录和 assets 都没有）");
             }
         } else {
             throw new RuntimeException("找不到 vocab.txt");
         }
 
-        // ── 加载模型 ──
-        // Android 部分设备 NNPack Conv1d 有兼容性问题，禁用 NNPack 回退到默认 CPU 后端
-        try {
-            System.setProperty("org.pytorch.backend.nnpack.enabled", "false");
-        } catch (Exception ignored) {}
-
-        Log.i(TAG, "加载 BERT: " + bertFile.getName() + " (" + (bertFile.length() / 1048576) + " MB)");
-        try {
-            bertModel = Module.load(bertFile.getAbsolutePath());
-        } catch (OutOfMemoryError e) {
-            throw new RuntimeException("内存不足：BERT 模型 (" + (bertFile.length() / 1048576) + " MB) 超出可用内存");
-        }
-        Log.i(TAG, "BERT 加载后内存: free=" + (rt.freeMemory() / 1048576) + "MB");
-
-        Log.i(TAG, "加载 SSL: " + sslFile.getName() + " (" + (sslFile.length() / 1048576) + " MB)");
-        try {
-            sslModel = Module.load(sslFile.getAbsolutePath());
-        } catch (OutOfMemoryError e) {
-            throw new RuntimeException("内存不足：SSL 模型 (" + (sslFile.length() / 1048576) + " MB) 超出可用内存");
-        }
-        Log.i(TAG, "SSL 加载后内存: free=" + (rt.freeMemory() / 1048576) + "MB");
-
-        Log.i(TAG, "加载 GPT-SoVITS: " + gptFile.getName() + " (" + (gptFile.length() / 1048576) + " MB)");
-        Log.i(TAG, "加载前内存: free=" + (rt.freeMemory() / 1048576) + "MB, total=" + (rt.totalMemory() / 1048576) + "MB");
-        System.gc();
-        Log.i(TAG, "GC 后内存: free=" + (rt.freeMemory() / 1048576) + "MB, total=" + (rt.totalMemory() / 1048576) + "MB");
-        
-        try {
-            gptSovitsModel = Module.load(gptFile.getAbsolutePath());
-        } catch (OutOfMemoryError e) {
-            Log.e(TAG, "GPT-SoVITS OOM! 文件: " + (gptFile.length() / 1048576) + "MB");
-            throw new RuntimeException("内存不足：GPT-SoVITS 模型 (" + (gptFile.length() / 1048576) + " MB) 超出可用内存");
-        }
-
-        loaded = true;
-        Log.i(TAG, "✅ 三个模型 + tokenizer 加载完成");
-        Log.i(TAG, "加载后内存: free=" + (rt.freeMemory() / 1048576) + "MB, total=" + (rt.totalMemory() / 1048576) + "MB");
+        ready = true;
+        Log.i(TAG, "✅ 初始化完成（模型未加载到内存，推理时按需串行加载）");
     }
 
     private File findModelFile(File dir, String prefix) {
-        // 尝试 _cpu.pt, .pt 等多种后缀
         String[] suffixes = {"_cpu.pt", ".pt"};
         for (String suf : suffixes) {
             File f = new File(dir, prefix + suf);
             if (f.exists() && f.length() > 1024) return f;
         }
-        // 模糊匹配
         File[] files = dir.listFiles();
         if (files != null) {
             for (File f : files) {
@@ -165,15 +118,12 @@ public class TTSEngine {
     }
 
     /**
-     * 全流程推理。
+     * 全流程推理 —— 串行加载与卸载。
      *
-     * @param text          要合成的日文文本（如 "こんにちは"）
-     * @param refAudioPath  参考音频文件路径（WAV，任意采样率，GPT 内部重采样）
-     * @param refText       参考音频对应的文本（可选，用于 BERT 编码参考文本）
-     * @param speed         语速（后处理，0.5-2.5）
-     * @param topK          top_k 采样
-     * @param temperature   温度（暂未使用）
-     * @return 音频采样 float[]（32kHz）
+     * 流程：加载 BERT → forward → destroy →
+     *       加载 SSL  → forward → destroy →
+     *       加载 GPT  → forward → destroy →
+     *       返回音频
      */
     public float[] synthesize(
             String text,
@@ -183,7 +133,7 @@ public class TTSEngine {
             int topK,
             float temperature
     ) throws Exception {
-        if (!loaded) throw new IllegalStateException("模型未加载");
+        if (!ready) throw new IllegalStateException("模型未初始化");
         this.speedParam = speed;
         this.topKParam = topK;
         this.tempParam = temperature;
@@ -191,10 +141,8 @@ public class TTSEngine {
         Log.i(TAG, "━━━ 推理开始 ━━━");
         Log.i(TAG, "text: \"" + text + "\"");
         Log.i(TAG, "ref_audio: " + refAudioPath);
-        Log.i(TAG, "ref_text: \"" + (refText != null ? refText : "(null)") + "\"");
-        Log.i(TAG, "speed=" + speed + " topK=" + topK);
 
-        // ── Step 0: Tokenize 文本 ──
+        // ── Step 0: Tokenize ──
         int[] targetTokenIds = tokenizer.encode(text, maxTextLen);
         long[] targetIdsLong = toLongArray(targetTokenIds);
 
@@ -202,118 +150,164 @@ public class TTSEngine {
         if (refText != null && !refText.isEmpty()) {
             refTokenIds = tokenizer.encodeReference(refText, maxTextLen);
         } else {
-            // 没有参考文本时，用目标文本自己的 token IDs
             refTokenIds = targetTokenIds;
         }
         long[] refIdsLong = toLongArray(refTokenIds);
 
         Log.i(TAG, "目标 tokens: " + targetTokenIds.length + "  参考 tokens: " + refTokenIds.length);
 
-        // ── Step 1: BERT → text_bert ──
-        int seqLen = targetTokenIds.length;
-        int phoneLen = seqLen - 2;  // BERT slices [1:-1], so word2ph = seqLen-2
-        if (phoneLen < 1) phoneLen = 1;
-        long[] attnMask = new long[seqLen];
-        long[] typeIds = new long[seqLen];
-        long[] word2ph = new long[phoneLen];
-        Arrays.fill(attnMask, 1L);
-        // word2ph: 每个 BERT token 对应几个 phone（1D，不 2D）
-        // word2ph[i] = phone 数量；简单情景每个 token 对应 1 个 phone
-        Arrays.fill(word2ph, 1L);
+        // ════════════════════════════════════════════
+        // Phase 1: BERT（加载 → 推理 → 销毁）
+        // ════════════════════════════════════════════
+        Log.i(TAG, "--- Phase 1: BERT ---");
+        Module bertModel = loadModelSafely(bertPath, "BERT");
+        Tensor textBert = null;
+        Tensor refBert = null;
 
-        Tensor inputIds = Tensor.fromBlob(targetIdsLong, new long[]{1, seqLen});
-        Tensor attnMaskT = Tensor.fromBlob(attnMask, new long[]{1, seqLen});
-        Tensor typeIdsT = Tensor.fromBlob(typeIds, new long[]{1, seqLen});
-        Tensor word2phT = Tensor.fromBlob(word2ph, new long[]{phoneLen});  // 1D, phoneLen
+        try {
+            // 目标文本 BERT
+            int seqLen = targetTokenIds.length;
+            int phoneLen = seqLen - 2;
+            if (phoneLen < 1) phoneLen = 1;
+            long[] attnMask = new long[seqLen];
+            long[] typeIds = new long[seqLen];
+            long[] word2ph = new long[phoneLen];
+            Arrays.fill(attnMask, 1L);
+            Arrays.fill(word2ph, 1L);
 
-        IValue bertResult = bertModel.forward(
-                IValue.from(inputIds),
-                IValue.from(attnMaskT),
-                IValue.from(typeIdsT),
-                IValue.from(word2phT)
-        );
-        Tensor textBert = bertResult.toTensor();
-        Log.i(TAG, "BERT text_bert shape: " + Arrays.toString(textBert.shape()));
+            Tensor inputIds = Tensor.fromBlob(targetIdsLong, new long[]{1, seqLen});
+            Tensor attnMaskT = Tensor.fromBlob(attnMask, new long[]{1, seqLen});
+            Tensor typeIdsT = Tensor.fromBlob(typeIds, new long[]{1, seqLen});
+            Tensor word2phT = Tensor.fromBlob(word2ph, new long[]{phoneLen});
 
-        // ── Step 1b: BERT → ref_bert ──
-        int refLen = refTokenIds.length;
-        int refPhoneLen = refLen - 2;
-        if (refPhoneLen < 1) refPhoneLen = 1;
-        long[] refAttnMask = new long[refLen];
-        long[] refTypeIds = new long[refLen];
-        long[] refWord2ph = new long[refPhoneLen];
-        Arrays.fill(refAttnMask, 1L);
-        Arrays.fill(refWord2ph, 1L);
+            textBert = bertModel.forward(
+                    IValue.from(inputIds), IValue.from(attnMaskT),
+                    IValue.from(typeIdsT), IValue.from(word2phT)
+            ).toTensor();
+            Log.i(TAG, "text_bert: " + Arrays.toString(textBert.shape()));
 
-        Tensor refInputIds = Tensor.fromBlob(refIdsLong, new long[]{1, refLen});
-        Tensor refAttnMaskT = Tensor.fromBlob(refAttnMask, new long[]{1, refLen});
-        Tensor refTypeIdsT = Tensor.fromBlob(refTypeIds, new long[]{1, refLen});
-        Tensor refWord2phT = Tensor.fromBlob(refWord2ph, new long[]{refPhoneLen});  // 1D tensor
+            // 参考文本 BERT
+            int refLen = refTokenIds.length;
+            int refPhoneLen = refLen - 2;
+            if (refPhoneLen < 1) refPhoneLen = 1;
+            long[] refAttnMask = new long[refLen];
+            long[] refTypeIds = new long[refLen];
+            long[] refWord2ph = new long[refPhoneLen];
+            Arrays.fill(refAttnMask, 1L);
+            Arrays.fill(refWord2ph, 1L);
 
-        IValue refBertResult = bertModel.forward(
-                IValue.from(refInputIds),
-                IValue.from(refAttnMaskT),
-                IValue.from(refTypeIdsT),
-                IValue.from(refWord2phT)
-        );
-        Tensor refBert = refBertResult.toTensor();
-        Log.i(TAG, "BERT ref_bert shape: " + Arrays.toString(refBert.shape()));
+            Tensor refInputIds = Tensor.fromBlob(refIdsLong, new long[]{1, refLen});
+            Tensor refAttnMaskT = Tensor.fromBlob(refAttnMask, new long[]{1, refLen});
+            Tensor refTypeIdsT = Tensor.fromBlob(refTypeIds, new long[]{1, refLen});
+            Tensor refWord2phT = Tensor.fromBlob(refWord2ph, new long[]{refPhoneLen});
 
-        // ── Step 2: 加载参考音频（两份：16kHz 给 SSL，32kHz 给 GPT resamplex） ──
-        float[] refAudioSrc = loadRefAudioRaw(refAudioPath);  // 不重采样，保持原采样率
+            refBert = bertModel.forward(
+                    IValue.from(refInputIds), IValue.from(refAttnMaskT),
+                    IValue.from(refTypeIdsT), IValue.from(refWord2phT)
+            ).toTensor();
+            Log.i(TAG, "ref_bert: " + Arrays.toString(refBert.shape()));
+
+        } finally {
+            // 销毁 BERT，释放 1.3GB
+            destroyModel(bertModel, "BERT");
+        }
+
+        // ════════════════════════════════════════════
+        // Phase 2: 参考音频处理 + SSL
+        // ════════════════════════════════════════════
+        Log.i(TAG, "--- Phase 2: 参考音频 + SSL ---");
+
+        float[] refAudioSrc = loadRefAudioRaw(refAudioPath);
         float[] refAudio16k = refSrcSampleRate == sslSampleRate
                 ? refAudioSrc
                 : resample(refAudioSrc, refSrcSampleRate, sslSampleRate);
-        // GPT 内部 resamplex(ref_audio_sr, 32000, 16000)，所以传 32kHz
         float[] refAudio32k = (refSrcSampleRate == 32000) ? refAudioSrc
                 : resample(refAudioSrc, refSrcSampleRate, 32000);
-        Tensor refAudio32kTensor = Tensor.fromBlob(refAudio32k, new long[]{1, refAudio32k.length});
-        Log.i(TAG, "ref_audio: src=" + refAudioSrc.length + "@" + refSrcSampleRate
-                + "Hz, 16k=" + refAudio16k.length + ", 32k=" + refAudio32k.length);
 
-        // ── Step 3: SSL → ssl_content (16kHz) ──
-        Tensor refAudio16kTensor = Tensor.fromBlob(refAudio16k, new long[]{1, refAudio16k.length});
-        IValue sslResult = sslModel.forward(IValue.from(refAudio16kTensor));
-        Tensor sslContent = sslResult.toTensor();
-        Log.i(TAG, "SSL ssl_content shape: " + Arrays.toString(sslContent.shape()));
-
-        // ── Step 4: GPT-SoVITS 联级推理 ──
-        // forward(ssl_content, ref_audio_sr, ref_seq, text_seq, ref_bert, text_bert, top_k) → Tensor
-        Tensor topKTensor = Tensor.fromBlob(new long[]{topK}, new long[]{1});
-
-        // ref_seq / text_seq 需要是 LongTensor (int64)
-        Tensor refSeqT = Tensor.fromBlob(refIdsLong, new long[]{1, refLen});
-        Tensor textSeqT = Tensor.fromBlob(targetIdsLong, new long[]{1, seqLen});
-
-        IValue gptResult = gptSovitsModel.forward(
-                IValue.from(sslContent),     // ssl_content
-                IValue.from(refAudio32kTensor), // ref_audio_sr (32kHz)
-                IValue.from(refSeqT),        // ref_seq
-                IValue.from(textSeqT),       // text_seq
-                IValue.from(refBert),        // ref_bert
-                IValue.from(textBert),       // text_bert
-                IValue.from(topKTensor)      // top_k
-        );
-        Tensor audioTensor = gptResult.toTensor();
-        float[] audio = audioTensor.getDataAsFloatArray();
-
-        Log.i(TAG, "GPT-SoVITS 输出: " + audio.length + " samples @ " + sampleRate + "Hz = " +
-                String.format("%.2f", audio.length / (float) sampleRate) + " 秒");
-
-        // ── 后处理: 语速调整 ──
-        if (Math.abs(speed - 1.0f) > 0.01f) {
-            audio = adjustSpeed(audio, speed);
-            Log.i(TAG, "语速调整后: " + audio.length + " samples");
+        // SSL 推理
+        Module sslModel = loadModelSafely(sslPath, "SSL");
+        Tensor sslContent;
+        try {
+            Tensor refAudio16kTensor = Tensor.fromBlob(refAudio16k, new long[]{1, refAudio16k.length});
+            sslContent = sslModel.forward(IValue.from(refAudio16kTensor)).toTensor();
+            Log.i(TAG, "ssl_content: " + Arrays.toString(sslContent.shape()));
+        } finally {
+            destroyModel(sslModel, "SSL");
         }
 
-        return audio;
+        // ════════════════════════════════════════════
+        // Phase 3: GPT-SoVITS（加载 → 推理 → 销毁）
+        // ════════════════════════════════════════════
+        Log.i(TAG, "--- Phase 3: GPT-SoVITS ---");
+
+        Module gptModel = loadModelSafely(gptSovitsPath, "GPT-SoVITS");
+        try {
+            int refLen = refTokenIds.length;
+            int seqLen = targetTokenIds.length;
+            Tensor refAudio32kTensor = Tensor.fromBlob(refAudio32k, new long[]{1, refAudio32k.length});
+            Tensor topKTensor = Tensor.fromBlob(new long[]{topK}, new long[]{1});
+            Tensor refSeqT = Tensor.fromBlob(refIdsLong, new long[]{1, refLen});
+            Tensor textSeqT = Tensor.fromBlob(targetIdsLong, new long[]{1, seqLen});
+
+            IValue gptResult = gptModel.forward(
+                    IValue.from(sslContent),
+                    IValue.from(refAudio32kTensor),
+                    IValue.from(refSeqT),
+                    IValue.from(textSeqT),
+                    IValue.from(refBert),
+                    IValue.from(textBert),
+                    IValue.from(topKTensor)
+            );
+            Tensor audioTensor = gptResult.toTensor();
+            float[] audio = audioTensor.getDataAsFloatArray();
+
+            Log.i(TAG, "输出: " + audio.length + " samples @ " + sampleRate + "Hz = " +
+                    String.format("%.2f", audio.length / (float) sampleRate) + " 秒");
+
+            // 后处理
+            if (Math.abs(speed - 1.0f) > 0.01f) {
+                audio = adjustSpeed(audio, speed);
+                Log.i(TAG, "语速调整后: " + audio.length + " samples");
+            }
+
+            return audio;
+        } finally {
+            destroyModel(gptModel, "GPT-SoVITS");
+        }
     }
 
-    /**
-     * 将 float[] 音频编码为 WAV 格式字节。
-     */
+    // ─── 模型加载/销毁辅助 ───
+
+    private Module loadModelSafely(String path, String name) throws Exception {
+        Runtime rt = Runtime.getRuntime();
+        Log.i(TAG, "加载 " + name + ": " + new File(path).getName()
+                + " (free=" + (rt.freeMemory() / 1048576) + "MB)");
+        System.gc();
+        try {
+            return Module.load(path);
+        } catch (OutOfMemoryError e) {
+            throw new RuntimeException("内存不足加载 " + name + " (" 
+                    + (new File(path).length() / 1048576) + " MB)\n"
+                    + "可用: " + (rt.freeMemory() / 1048576) + " MB\n"
+                    + "请关闭后台应用后重试");
+        }
+    }
+
+    private void destroyModel(Module model, String name) {
+        if (model != null) {
+            try {
+                model.destroy();
+                System.gc();
+                Log.i(TAG, name + " 已销毁，free=" + (Runtime.getRuntime().freeMemory() / 1048576) + "MB");
+            } catch (Exception e) {
+                Log.w(TAG, name + " 销毁异常: " + e.getMessage());
+            }
+        }
+    }
+
+    // ─── 音频处理 ───
+
     public byte[] audioToWav(float[] audio) {
-        int actualRate = sampleRate;
         byte[] pcm = new byte[audio.length * 2];
         for (int i = 0; i < audio.length; i++) {
             float s = Math.max(-1f, Math.min(1f, audio[i]));
@@ -321,8 +315,7 @@ public class TTSEngine {
             pcm[i * 2] = (byte) (val & 0xFF);
             pcm[i * 2 + 1] = (byte) ((val >> 8) & 0xFF);
         }
-
-        byte[] header = createWavHeader(pcm.length, actualRate, 1, 16);
+        byte[] header = createWavHeader(pcm.length, sampleRate, 1, 16);
         byte[] wav = new byte[header.length + pcm.length];
         System.arraycopy(header, 0, wav, 0, header.length);
         System.arraycopy(pcm, 0, wav, header.length, pcm.length);
@@ -330,13 +323,10 @@ public class TTSEngine {
     }
 
     public void close() {
-        loaded = false;
-        if (bertModel != null) { bertModel.destroy(); bertModel = null; }
-        if (sslModel != null) { sslModel.destroy(); sslModel = null; }
-        if (gptSovitsModel != null) { gptSovitsModel.destroy(); gptSovitsModel = null; }
+        ready = false;
     }
 
-    // ─── 内部辅助方法 ────────────────────────────────────────
+    // ─── Token 工具 ───
 
     private long[] toLongArray(int[] arr) {
         long[] out = new long[arr.length];
@@ -344,10 +334,8 @@ public class TTSEngine {
         return out;
     }
 
-    /**
-     * 加载参考音频原始采样率 float[]，不重采样。
-     * refSrcSampleRate 会被设置为检测到的采样率。
-     */
+    // ─── 参考音频加载 ───
+
     private float[] loadRefAudioRaw(String path) throws Exception {
         if (path == null || path.isEmpty()) {
             throw new RuntimeException("需要提供参考音频文件");
@@ -365,7 +353,6 @@ public class TTSEngine {
                         (result.length / (float) refSrcSampleRate) + "s");
                 return result;
             }
-            // raw PCM 16kHz mono 默认
             refSrcSampleRate = 16000;
             int sampleCount = read / 2;
             float[] samples = new float[sampleCount];
@@ -379,101 +366,6 @@ public class TTSEngine {
         }
     }
 
-    /**
-     * 加载参考音频为 float[]。
-     * 支持 WAV (16-bit PCM, mono/stereo) 和 raw PCM。
-     * 返回归一化到 [-1, 1] 的 float 数组。
-     */
-    private float[] loadRefAudio(String path) throws Exception {
-        if (path == null || path.isEmpty()) {
-            Log.w(TAG, "无参考音频路径");
-            throw new RuntimeException("需要提供参考音频文件");
-        }
-
-        File f = new File(path);
-        if (!f.exists()) throw new RuntimeException("参考音频文件不存在: " + path);
-
-        try (FileInputStream fis = new FileInputStream(f)) {
-            byte[] raw = new byte[(int) f.length()];
-            int read = fis.read(raw);
-
-            // 检查 WAV 头
-            if (read > 12 && raw[0] == 'R' && raw[1] == 'I' && raw[2] == 'F' && raw[3] == 'F') {
-                return loadWavSamples(raw, read);
-            }
-            // raw PCM (16-bit mono), 假设 16kHz
-            int sampleCount = read / 2;
-            float[] samples = new float[sampleCount];
-            for (int i = 0; i < sampleCount; i++) {
-                int lo = raw[i * 2] & 0xFF;
-                int hi = raw[i * 2 + 1];
-                short val = (short) ((hi << 8) | lo);
-                samples[i] = val / 32768f;
-            }
-            return samples;
-        }
-    }
-
-    private float[] loadWavSamples(byte[] data, int len) {
-        // 读取 WAV 头获取参数
-        int channels = readShortLE(data, 22);
-        int sr = readIntLE(data, 24);
-        int bitsPerSample = readShortLE(data, 34);
-
-        // 找 data chunk
-        int dataOffset = 36;
-        while (dataOffset + 8 < len) {
-            if (data[dataOffset] == 'd' && data[dataOffset+1] == 'a'
-                    && data[dataOffset+2] == 't' && data[dataOffset+3] == 'a') {
-                dataOffset += 8;
-                break;
-            }
-            int chunkSize = readIntLE(data, dataOffset + 4);
-            dataOffset += 8 + chunkSize;
-        }
-
-        int bytesPerSample = bitsPerSample / 8;
-        int totalSamples = (len - dataOffset) / bytesPerSample;
-        float[] samples = new float[totalSamples / channels]; // mono mixdown
-
-        if (bitsPerSample == 16) {
-            for (int i = 0; i < totalSamples; i += channels) {
-                int pos = dataOffset + i * 2;
-                int lo = data[pos] & 0xFF;
-                int hi = data[pos + 1];
-                short val = (short) ((hi << 8) | lo);
-                float s = val / 32768f;
-                // mixdown to mono
-                for (int ch = 1; ch < channels; ch++) {
-                    pos = dataOffset + (i + ch) * 2;
-                    lo = data[pos] & 0xFF;
-                    hi = data[pos + 1];
-                    val = (short) ((hi << 8) | lo);
-                    s += val / 32768f;
-                }
-                samples[i / channels] = s / channels;
-            }
-        } else if (bitsPerSample == 32) {
-            for (int i = 0; i < totalSamples; i += channels) {
-                int pos = dataOffset + i * 4;
-                int ival = readIntLE(data, pos);
-                float s = ival / 2147483648f;
-                for (int ch = 1; ch < channels; ch++) {
-                    pos = dataOffset + (i + ch) * 4;
-                    ival = readIntLE(data, pos);
-                    s += ival / 2147483648f;
-                }
-                samples[i / channels] = s / channels;
-            }
-        }
-
-        Log.i(TAG, "WAV: " + sr + "Hz " + channels + "ch " + bitsPerSample + "bit → " +
-                samples.length + " mono samples");
-
-        return samples;
-    }
-
-    /** loadWavSamples 但不重采样，保留原始采样率 */
     private float[] loadWavSamplesNoResample(byte[] data, int len) {
         int channels = readShortLE(data, 22);
         int sr = readIntLE(data, 24);
@@ -524,9 +416,10 @@ public class TTSEngine {
                 samples[i / channels] = s / channels;
             }
         }
-
         return samples;
     }
+
+    // ─── 重采样 ───
 
     private float[] resample(float[] input, int srcRate, int dstRate) {
         if (srcRate == dstRate) return input;
@@ -546,9 +439,6 @@ public class TTSEngine {
         return output;
     }
 
-    /**
-     * 简单语速调整：线性插值伸缩。
-     */
     private float[] adjustSpeed(float[] audio, float speed) {
         int newLen = Math.round(audio.length / speed);
         float[] result = new float[newLen];
@@ -565,7 +455,7 @@ public class TTSEngine {
         return result;
     }
 
-    // ─── WAV header ───
+    // ─── WAV header / byte 操作 ───
 
     private static byte[] createWavHeader(int dataSize, int sampleRate, int channels, int bitsPerSample) {
         byte[] h = new byte[44];
