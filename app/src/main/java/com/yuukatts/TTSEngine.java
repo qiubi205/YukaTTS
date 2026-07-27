@@ -39,7 +39,8 @@ public class TTSEngine {
 
     private boolean loaded = false;
     private int sampleRate = 32000; // GPT-SoVITS 输出 32kHz
-    private int sslSampleRate = 16000; // SSL 模型期望 16kHz
+    private int sslSampleRate = 16000;
+    private int refSrcSampleRate = 16000;  // 上次加载参考音频的原始采样率
     private int maxTextLen = 200; // 最大文本长度
 
     // 推理参数
@@ -227,14 +228,21 @@ public class TTSEngine {
         Tensor refBert = refBertResult.toTensor();
         Log.i(TAG, "BERT ref_bert shape: " + Arrays.toString(refBert.shape()));
 
-        // ── Step 2: 加载参考音频 ──
-        float[] refAudio = loadRefAudio(refAudioPath);
-        Tensor refAudioTensor = Tensor.fromBlob(refAudio, new long[]{1, refAudio.length});
-        Log.i(TAG, "参考音频: " + refAudio.length + " samples @ " + sslSampleRate + "Hz = " +
-                (refAudio.length / (float) sslSampleRate) + " 秒");
+        // ── Step 2: 加载参考音频（两份：16kHz 给 SSL，32kHz 给 GPT resamplex） ──
+        float[] refAudioSrc = loadRefAudioRaw(refAudioPath);  // 不重采样，保持原采样率
+        float[] refAudio16k = refSrcSampleRate == sslSampleRate
+                ? refAudioSrc
+                : resample(refAudioSrc, refSrcSampleRate, sslSampleRate);
+        // GPT 内部 resamplex(ref_audio_sr, 32000, 16000)，所以传 32kHz
+        float[] refAudio32k = (refSrcSampleRate == 32000) ? refAudioSrc
+                : resample(refAudioSrc, refSrcSampleRate, 32000);
+        Tensor refAudio32kTensor = Tensor.fromBlob(refAudio32k, new long[]{1, refAudio32k.length});
+        Log.i(TAG, "ref_audio: src=" + refAudioSrc.length + "@" + refSrcSampleRate
+                + "Hz, 16k=" + refAudio16k.length + ", 32k=" + refAudio32k.length);
 
-        // ── Step 3: SSL → ssl_content ──
-        IValue sslResult = sslModel.forward(IValue.from(refAudioTensor));
+        // ── Step 3: SSL → ssl_content (16kHz) ──
+        Tensor refAudio16kTensor = Tensor.fromBlob(refAudio16k, new long[]{1, refAudio16k.length});
+        IValue sslResult = sslModel.forward(IValue.from(refAudio16kTensor));
         Tensor sslContent = sslResult.toTensor();
         Log.i(TAG, "SSL ssl_content shape: " + Arrays.toString(sslContent.shape()));
 
@@ -248,7 +256,7 @@ public class TTSEngine {
 
         IValue gptResult = gptSovitsModel.forward(
                 IValue.from(sslContent),     // ssl_content
-                IValue.from(refAudioTensor), // ref_audio_sr (原始音频，内部重采样)
+                IValue.from(refAudio32kTensor), // ref_audio_sr (32kHz)
                 IValue.from(refSeqT),        // ref_seq
                 IValue.from(textSeqT),       // text_seq
                 IValue.from(refBert),        // ref_bert
@@ -303,6 +311,41 @@ public class TTSEngine {
         long[] out = new long[arr.length];
         for (int i = 0; i < arr.length; i++) out[i] = arr[i];
         return out;
+    }
+
+    /**
+     * 加载参考音频原始采样率 float[]，不重采样。
+     * refSrcSampleRate 会被设置为检测到的采样率。
+     */
+    private float[] loadRefAudioRaw(String path) throws Exception {
+        if (path == null || path.isEmpty()) {
+            throw new RuntimeException("需要提供参考音频文件");
+        }
+        File f = new File(path);
+        if (!f.exists()) throw new RuntimeException("参考音频文件不存在: " + path);
+
+        try (FileInputStream fis = new FileInputStream(f)) {
+            byte[] raw = new byte[(int) f.length()];
+            int read = fis.read(raw);
+
+            if (read > 12 && raw[0] == 'R' && raw[1] == 'I' && raw[2] == 'F' && raw[3] == 'F') {
+                float[] result = loadWavSamplesNoResample(raw, read);
+                Log.i(TAG, "WAV raw: " + refSrcSampleRate + "Hz " + result.length + " samples = " +
+                        (result.length / (float) refSrcSampleRate) + "s");
+                return result;
+            }
+            // raw PCM 16kHz mono 默认
+            refSrcSampleRate = 16000;
+            int sampleCount = read / 2;
+            float[] samples = new float[sampleCount];
+            for (int i = 0; i < sampleCount; i++) {
+                int lo = raw[i * 2] & 0xFF;
+                int hi = raw[i * 2 + 1];
+                short val = (short) ((hi << 8) | lo);
+                samples[i] = val / 32768f;
+            }
+            return samples;
+        }
     }
 
     /**
@@ -396,10 +439,59 @@ public class TTSEngine {
         Log.i(TAG, "WAV: " + sr + "Hz " + channels + "ch " + bitsPerSample + "bit → " +
                 samples.length + " mono samples");
 
-        // 如果采样率不是 16kHz，重采样
-        if (sr != sslSampleRate && sr > 0) {
-            samples = resample(samples, sr, sslSampleRate);
-            Log.i(TAG, "重采样 " + sr + " → " + sslSampleRate + "Hz: " + samples.length + " samples");
+        return samples;
+    }
+
+    /** loadWavSamples 但不重采样，保留原始采样率 */
+    private float[] loadWavSamplesNoResample(byte[] data, int len) {
+        int channels = readShortLE(data, 22);
+        int sr = readIntLE(data, 24);
+        int bitsPerSample = readShortLE(data, 34);
+        refSrcSampleRate = sr;
+
+        int dataOffset = 36;
+        while (dataOffset + 8 < len) {
+            if (data[dataOffset] == 'd' && data[dataOffset+1] == 'a'
+                    && data[dataOffset+2] == 't' && data[dataOffset+3] == 'a') {
+                dataOffset += 8;
+                break;
+            }
+            int chunkSize = readIntLE(data, dataOffset + 4);
+            dataOffset += 8 + chunkSize;
+        }
+
+        int bytesPerSample = bitsPerSample / 8;
+        int totalSamples = (len - dataOffset) / bytesPerSample;
+        float[] samples = new float[totalSamples / channels];
+
+        if (bitsPerSample == 16) {
+            for (int i = 0; i < totalSamples; i += channels) {
+                int pos = dataOffset + i * 2;
+                int lo = data[pos] & 0xFF;
+                int hi = data[pos + 1];
+                short val = (short) ((hi << 8) | lo);
+                float s = val / 32768f;
+                for (int ch = 1; ch < channels; ch++) {
+                    pos = dataOffset + (i + ch) * 2;
+                    lo = data[pos] & 0xFF;
+                    hi = data[pos + 1];
+                    val = (short) ((hi << 8) | lo);
+                    s += val / 32768f;
+                }
+                samples[i / channels] = s / channels;
+            }
+        } else if (bitsPerSample == 32) {
+            for (int i = 0; i < totalSamples; i += channels) {
+                int pos = dataOffset + i * 4;
+                int ival = readIntLE(data, pos);
+                float s = ival / 2147483648f;
+                for (int ch = 1; ch < channels; ch++) {
+                    pos = dataOffset + (i + ch) * 4;
+                    ival = readIntLE(data, pos);
+                    s += ival / 2147483648f;
+                }
+                samples[i / channels] = s / channels;
+            }
         }
 
         return samples;
